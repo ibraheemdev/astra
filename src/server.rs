@@ -1,9 +1,8 @@
-use crate::net::TcpListener;
-use crate::reactor::Reactor;
+use crate::net::Reactor;
 use crate::{executor, Body};
 
 use std::convert::Infallible;
-use std::future::{ready, Future, Ready};
+use std::future::Future;
 use std::io;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::pin::Pin;
@@ -11,12 +10,14 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use hyper::rt::Executor;
+use hyper::server::conn::Http;
 use hyper::{Request, Response};
 
 #[derive(Default)]
 pub struct Server {
     addr: Option<Vec<SocketAddr>>,
-    http1_keepalive: Option<bool>,
+    http1_keep_alive: Option<bool>,
     http1_half_close: Option<bool>,
     http1_max_buf_size: Option<usize>,
     http1_pipeline_flush: Option<bool>,
@@ -66,20 +67,18 @@ impl Server {
     {
         let reactor = Reactor::new().expect("failed to create reactor");
 
-        let listener = TcpListener::bind(reactor, self.addr.unwrap().as_slice())
+        let listener = std::net::TcpListener::bind(self.addr.unwrap().as_slice())
             .expect("failed to bind listener");
 
         let executor = executor::Executor::new(self.max_workers, self.worker_keep_alive);
-        let builder = hyper::Server::builder(listener).executor(executor);
+        let mut http = Http::new().with_executor(executor.clone());
 
-        let builder = options!(
+        options!(
             self,
-            builder,
+            http,
             [
-                http1_keepalive,
+                http1_keep_alive,
                 http1_half_close,
-                http1_max_buf_size,
-                http1_pipeline_flush,
                 http1_writev,
                 http1_title_case_headers,
                 http1_preserve_header_case,
@@ -91,11 +90,36 @@ impl Server {
                 http2_max_frame_size,
                 http2_max_concurrent_streams,
                 http2_max_send_buf_size
+            ],
+            [
+                max_buf_size => http1_max_buf_size,
+                pipeline_flush => http1_pipeline_flush,
             ]
         );
+        let service = Arc::new(service);
+        for conn in listener.incoming() {
+            let conn = match conn.and_then(|stream| reactor.register(stream)) {
+                Ok(conn) => conn,
+                Err(err) => {
+                    log::error!("error accepting connection: {}", err);
+                    continue;
+                }
+            };
 
-        let server = builder.serve(service::MakeService(Arc::new(service)));
-        executor::block_on(server).map_err(|err| io::Error::new(io::ErrorKind::Other, err))
+            let service = service.clone();
+            let builder = http.clone();
+            executor.execute(async move {
+                if let Err(err) = builder
+                    .clone()
+                    .serve_connection(conn, service::HyperService(service))
+                    .await
+                {
+                    log::error!("error serving connection: {}", err);
+                }
+            });
+        }
+
+        Ok(())
     }
 
     /// Sets the maximum number of threads in the pool.
@@ -117,8 +141,8 @@ impl Server {
     /// Sets whether to use keep-alive for HTTP/1 connections.
     ///
     /// Default is `true`.
-    pub fn http1_keepalive(mut self, val: bool) -> Self {
-        self.http1_keepalive = Some(val);
+    pub fn http1_keep_alive(mut self, val: bool) -> Self {
+        self.http1_keep_alive = Some(val);
         self
     }
 
@@ -284,44 +308,28 @@ impl Server {
 mod service {
     use super::*;
 
-    pub struct MakeService<S>(pub Arc<S>);
+    pub struct HyperService<S>(pub Arc<S>);
 
-    impl<T, S> hyper::service::Service<T> for MakeService<S> {
-        type Response = Lazy<S>;
-        type Error = Infallible;
-        type Future = Ready<Result<Lazy<S>, Infallible>>;
-
-        fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-            Poll::Ready(Ok(()))
-        }
-
-        fn call(&mut self, _: T) -> Self::Future {
-            ready(Ok(Lazy(self.0.clone())))
-        }
-    }
-
-    pub struct Lazy<S>(Arc<S>);
-
-    impl<S> hyper::service::Service<Request<hyper::Body>> for Lazy<S>
+    impl<S> hyper::service::Service<Request<hyper::Body>> for HyperService<S>
     where
         S: Service,
     {
         type Response = Response<Body>;
         type Error = Infallible;
-        type Future = Call<S>;
+        type Future = Lazy<S>;
 
         fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
             Poll::Ready(Ok(()))
         }
 
         fn call(&mut self, req: Request<hyper::Body>) -> Self::Future {
-            Call(self.0.clone(), Some(req))
+            Lazy(self.0.clone(), Some(req))
         }
     }
 
-    pub struct Call<S>(Arc<S>, Option<Request<hyper::Body>>);
+    pub struct Lazy<S>(Arc<S>, Option<Request<hyper::Body>>);
 
-    impl<S> Future for Call<S>
+    impl<S> Future for Lazy<S>
     where
         S: Service,
     {
@@ -336,19 +344,18 @@ mod service {
 }
 
 macro_rules! options {
-    ($self:ident, $other:expr, [$($option:ident),* $(,)?]) => {{
-        let other = $other;
-
+    ($self:ident, $other:expr, [$($option:ident),* $(,)?], [$($other_option:ident => $this_option:ident),* $(,)?]) => {{
         $(
-            let other = if let Some(val) = $self.$option {
-                other.$option(val)
-            } else {
-                other
-            };
+            if let Some(val) = $self.$option {
+                $other.$option(val);
+            }
         )*
-
-        other
-    }}
+        $(
+            if let Some(val) = $self.$this_option {
+                $other.$other_option(val);
+            }
+        )*
+    }};
 }
 
 use options;

@@ -1,7 +1,6 @@
 mod body;
 mod executor;
 mod net;
-mod reactor;
 mod server;
 
 pub use body::Body;
