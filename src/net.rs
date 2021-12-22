@@ -80,7 +80,7 @@ impl Reactor {
         });
 
         std::thread::Builder::new()
-            .name("hyper-blocking-reactor".to_owned())
+            .name("astra-reactor".to_owned())
             .spawn({
                 let shared = shared.clone();
                 move || {

@@ -95,7 +95,10 @@ where
             if shared.workers != self.inner.max_workers {
                 shared.workers += 1;
                 let inner = self.inner.clone();
-                thread::spawn(move || inner.run());
+                std::thread::Builder::new()
+                    .name("astra-worker".to_owned())
+                    .spawn(move || inner.run())
+                    .unwrap();
             }
         } else {
             shared.idle -= 1;
