@@ -15,8 +15,8 @@ use hyper::server::conn::Http;
 
 /// An HTTP server.
 ///
-/// ```rust
-/// use hyper_blocking::{Body, Request, Response, Server};
+/// ```no_run
+/// use astra::{Body, Request, Response, Server};
 ///
 /// fn main() {
 ///     Server::bind("localhost:3000")
@@ -55,8 +55,8 @@ pub struct Server {
 /// from a [`Request`] to a [`Response`], but implementing
 /// it manually allows for stateful services:
 ///
-/// ```rust
-/// use hyper_blocking::{Request, Response, Server};
+/// ```no_run
+/// use astra::{Request, Response, Server, Service, Body};
 /// use std::sync::Mutex;
 ///
 /// struct MyService {
@@ -65,9 +65,9 @@ pub struct Server {
 ///
 /// impl Service for MyService {
 ///     fn call(&self, request: Request) -> Response {
-///         let count = self.count.lock().unwrap();
-///         count += 1;
-///         println!("request #{}", count);
+///         let mut count = self.count.lock().unwrap();
+///         *count += 1;
+///         println!("request #{}", *count);
 ///         Response::new(Body::new("Hello world"))
 ///     }
 /// }
@@ -95,12 +95,12 @@ where
 impl Server {
     /// Binds a server to the provided address.
     ///
-    /// ```
-    /// use hyper_blocking::Server;
+    /// ```no_run
+    /// use astra::Server;
     /// use std::net::SocketAddr;
     ///
     /// let server = Server::bind("localhost:3000");
-    /// let server = Server::bind(SocketAddr::from([127, 0, 0, 1], 3000));
+    /// let server = Server::bind(SocketAddr::from(([127, 0, 0, 1], 3000)));
     /// ```
     ///
     /// # Panics
@@ -117,8 +117,8 @@ impl Server {
 
     /// Serve incoming connections with the provided service.
     ///
-    /// ```rust
-    /// use hyper_blocking::{Body, Request, Response, Server};
+    /// ```no_run
+    /// use astra::{Body, Request, Response, Server};
     ///
     /// fn main() {
     ///     Server::bind("localhost:3000")

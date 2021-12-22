@@ -20,14 +20,14 @@ pub type Request = hyper::Request<Body>;
 /// You can create a response with the [`new`](hyper::Response::new) method:
 ///
 /// ```
-/// # use hyper_blocking::{Response, Body};
+/// # use astra::{Response, Body};
 /// let response = Response::new(Body::new("Hello world!"));
 /// ```
 ///
 /// Or with a [`ResponseBuilder`]:
 ///
 /// ```
-/// # use hyper_blocking::{ResponseBuilder, Body};
+/// # use astra::{ResponseBuilder, Body};
 /// let response = ResponseBuilder::builder()
 ///     .status(404)
 ///     .header("X-Custom-Foo", "Bar")
@@ -41,7 +41,7 @@ pub type Response = hyper::Response<Body>;
 /// A builder for an HTTP response.
 ///
 /// ```
-/// use hyper_blocking::{ResponseBuilder, Body};
+/// use astra::{ResponseBuilder, Body};
 ///
 /// let response = ResponseBuilder::builder()
 ///     .status(404)
@@ -59,9 +59,9 @@ pub type ResponseBuilder = hyper::Response<()>;
 /// yields chunks as [`Bytes`].
 ///
 /// ```rust
-/// use hyper_blocking::{Request, Response};
+/// use astra::{Request, Response, Body};
 ///
-/// fn handle(request: Request) -> Response {
+/// fn handle(mut req: Request) -> Response {
 ///     for chunk in req.body_mut() {
 ///         println!("body chunk {:?}", chunk);
 ///     }
@@ -75,7 +75,7 @@ impl Body {
     /// Create a body from a string or bytes.
     ///
     /// ```rust
-    /// # use hyper_blocking::Body;
+    /// # use astra::Body;
     ///
     /// let string = Body::new("Hello world!");
     /// let bytes = Body::new(vec![0, 1, 0, 1, 0]);
@@ -92,10 +92,10 @@ impl Body {
     /// Create a body from an implementor of [`io::Read`].
     ///
     /// ```rust
-    /// use hyper_blocking::{Response, ResponseBuilder, Body};
+    /// use astra::{Request, Response, ResponseBuilder, Body};
     /// use std::fs::File;
     ///
-    /// fn handle(request: Request) -> Response {
+    /// fn handle(_request: Request) -> Response {
     ///     let file = File::open("index.html").unwrap();
     ///
     ///     ResponseBuilder::builder()
@@ -190,9 +190,9 @@ where
     type Item = io::Result<Bytes>;
 
     fn poll_next(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let ReaderStream { reader: _r, buf } = &mut *self;
+        let ReaderStream { reader, buf } = &mut *self;
 
-        let reader = match _r {
+        let reader = match reader {
             Some(reader) => reader,
             None => return Poll::Ready(None),
         };
@@ -207,7 +207,7 @@ where
                 Poll::Ready(Some(Err(err)))
             }
             Ok(0) => {
-                _r.take();
+                self.reader.take();
                 Poll::Ready(None)
             }
             Ok(n) => {
