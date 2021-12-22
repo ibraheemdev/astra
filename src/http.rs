@@ -1,7 +1,7 @@
 use crate::executor;
 
 use core::fmt;
-use std::io::{self, Read};
+use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -9,6 +9,49 @@ use futures_core::Stream;
 use hyper::body::HttpBody;
 
 pub use hyper::body::Bytes;
+
+/// An HTTP request.
+///
+/// See [`http::Request`](hyper::Request) and [`Body`] for details.
+pub type Request = hyper::Request<Body>;
+
+/// An HTTP response.
+///
+/// You can create a response with the [`new`](hyper::Response::new) method:
+///
+/// ```
+/// # use hyper_blocking::{Response, Body};
+/// let response = Response::new(Body::new("Hello world!"));
+/// ```
+///
+/// Or with a [`ResponseBuilder`]:
+///
+/// ```
+/// # use hyper_blocking::{ResponseBuilder, Body};
+/// let response = ResponseBuilder::builder()
+///     .status(404)
+///     .header("X-Custom-Foo", "Bar")
+///     .body(Body::new("Page not found."))
+///     .unwrap();
+/// ```
+///
+/// See [`http::Response`](hyper::Response) and [`Body`] for details.
+pub type Response = hyper::Response<Body>;
+
+/// A builder for an HTTP response.
+///
+/// ```
+/// use hyper_blocking::{ResponseBuilder, Body};
+///
+/// let response = ResponseBuilder::builder()
+///     .status(404)
+///     .header("X-Custom-Foo", "Bar")
+///     .body(Body::new("Page not found."))
+///     .unwrap();
+/// ```
+///
+/// See [`http::Response`](hyper::Response) and [`Body`] for details.
+pub type ResponseBuilder = hyper::Response<()>;
 
 /// The streaming body of an HTTP request or response.
 ///
@@ -32,9 +75,9 @@ impl Body {
     /// Create a body from a string or bytes.
     ///
     /// ```rust
-    /// use hyper_blocking::Body;
+    /// # use hyper_blocking::Body;
     ///
-    /// let string = Body::new("abcd");
+    /// let string = Body::new("Hello world!");
     /// let bytes = Body::new(vec![0, 1, 0, 1, 0]);
     /// ```
     pub fn new(data: impl Into<Bytes>) -> Body {
@@ -46,9 +89,24 @@ impl Body {
         Body(hyper::Body::empty())
     }
 
+    /// Create a body from an implementor of [`io::Read`].
+    ///
+    /// ```rust
+    /// use hyper_blocking::{Response, ResponseBuilder, Body};
+    /// use std::fs::File;
+    ///
+    /// fn handle(request: Request) -> Response {
+    ///     let file = File::open("index.html").unwrap();
+    ///
+    ///     ResponseBuilder::builder()
+    ///         .header("Content-Type", "text/html")
+    ///         .body(Body::wrap_reader(file))
+    ///         .unwrap()
+    /// }
+    /// ```
     pub fn wrap_reader<R>(reader: R) -> Body
     where
-        R: Read + Send + 'static,
+        R: io::Read + Send + 'static,
     {
         Body(hyper::Body::wrap_stream(ReaderStream::new(reader)))
     }
@@ -125,7 +183,10 @@ impl<R> ReaderStream<R> {
 
 impl<R> Unpin for ReaderStream<R> {}
 
-impl<R: Read> Stream for ReaderStream<R> {
+impl<R> Stream for ReaderStream<R>
+where
+    R: io::Read,
+{
     type Item = io::Result<Bytes>;
 
     fn poll_next(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {

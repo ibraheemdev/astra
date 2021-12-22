@@ -1,5 +1,5 @@
 use crate::net::Reactor;
-use crate::{executor, Body};
+use crate::{executor, Body, Request, Response};
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -12,8 +12,21 @@ use std::time::Duration;
 
 use hyper::rt::Executor;
 use hyper::server::conn::Http;
-use hyper::{Request, Response};
 
+/// An HTTP server.
+///
+/// ```rust
+/// use hyper_blocking::{Body, Request, Response, Server};
+///
+/// fn main() {
+///     Server::bind("localhost:3000")
+///         .serve(|mut req: Request| {
+///             println!("incoming {:?}", req.uri());
+///             Response::new(Body::new("Hello World!"))
+///         })
+///         .expect("failed to start server");
+/// }
+/// ```
 #[derive(Default)]
 pub struct Server {
     listener: Option<TcpListener>,
@@ -36,21 +49,59 @@ pub struct Server {
     max_workers: Option<usize>,
 }
 
+/// A service capable of responding to an HTTP request.
+///
+/// This trait is automatically implemented for functions
+/// from a [`Request`] to a [`Response`], but implementing
+/// it manually allows for stateful services:
+///
+/// ```rust
+/// use hyper_blocking::{Request, Response, Server};
+/// use std::sync::Mutex;
+///
+/// struct MyService {
+///     count: Mutex<usize>,
+/// }
+///
+/// impl Service for MyService {
+///     fn call(&self, request: Request) -> Response {
+///         let count = self.count.lock().unwrap();
+///         count += 1;
+///         println!("request #{}", count);
+///         Response::new(Body::new("Hello world"))
+///     }
+/// }
+///
+///
+/// fn main() {
+///     Server::bind("localhost:3000")
+///         .serve(MyService { count: Mutex::new(0) })
+///         .expect("failed to start server");
+/// }
+/// ```
 pub trait Service: Send + Sync + 'static {
-    fn call(&self, request: Request<Body>) -> Response<Body>;
+    fn call(&self, request: Request) -> Response;
 }
 
 impl<F> Service for F
 where
-    F: Fn(Request<Body>) -> Response<Body> + Send + Sync + 'static,
+    F: Fn(Request) -> Response + Send + Sync + 'static,
 {
-    fn call(&self, request: Request<Body>) -> Response<Body> {
+    fn call(&self, request: Request) -> Response {
         (self)(request)
     }
 }
 
 impl Server {
     /// Binds a server to the provided address.
+    ///
+    /// ```
+    /// use hyper_blocking::Server;
+    /// use std::net::SocketAddr;
+    ///
+    /// let server = Server::bind("localhost:3000");
+    /// let server = Server::bind(SocketAddr::from([127, 0, 0, 1], 3000));
+    /// ```
     ///
     /// # Panics
     ///
@@ -65,6 +116,19 @@ impl Server {
     }
 
     /// Serve incoming connections with the provided service.
+    ///
+    /// ```rust
+    /// use hyper_blocking::{Body, Request, Response, Server};
+    ///
+    /// fn main() {
+    ///     Server::bind("localhost:3000")
+    ///         .serve(|mut req: Request| {
+    ///             println!("incoming {:?}", req.uri());
+    ///             Response::new(Body::new("Hello World!"))
+    ///         })
+    ///         .expect("failed to start server");
+    /// }
+    /// ```
     pub fn serve<S>(self, service: S) -> io::Result<()>
     where
         S: Service,
@@ -78,9 +142,9 @@ impl Server {
 
         for conn in self.listener.unwrap().incoming() {
             let conn = conn.and_then(|stream| reactor.register(stream))?;
-
             let service = service.clone();
             let builder = http.clone();
+
             executor.execute(async move {
                 if let Err(err) = builder
                     .clone()
@@ -97,7 +161,7 @@ impl Server {
 
     /// Sets the maximum number of threads in the pool.
     ///
-    /// By default, this is set to `num_cpus * 15`.
+    /// By default, the limit is 15 threads per CPU core.
     pub fn max_workers(mut self, val: usize) -> Self {
         self.max_workers = Some(val);
         self
@@ -322,13 +386,15 @@ impl Server {
 mod service {
     use super::*;
 
+    type HyperRequest = hyper::Request<hyper::Body>;
+
     pub struct HyperService<S>(pub Arc<S>);
 
-    impl<S> hyper::service::Service<Request<hyper::Body>> for HyperService<S>
+    impl<S> hyper::service::Service<HyperRequest> for HyperService<S>
     where
         S: Service,
     {
-        type Response = Response<Body>;
+        type Response = Response;
         type Error = Infallible;
         type Future = Lazy<S>;
 
@@ -336,18 +402,18 @@ mod service {
             Poll::Ready(Ok(()))
         }
 
-        fn call(&mut self, req: Request<hyper::Body>) -> Self::Future {
+        fn call(&mut self, req: HyperRequest) -> Self::Future {
             Lazy(self.0.clone(), Some(req))
         }
     }
 
-    pub struct Lazy<S>(Arc<S>, Option<Request<hyper::Body>>);
+    pub struct Lazy<S>(Arc<S>, Option<HyperRequest>);
 
     impl<S> Future for Lazy<S>
     where
         S: Service,
     {
-        type Output = Result<Response<Body>, Infallible>;
+        type Output = Result<Response, Infallible>;
 
         fn poll(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
             let (parts, body) = self.1.take().unwrap().into_parts();
