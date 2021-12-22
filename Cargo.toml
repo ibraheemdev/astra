@@ -9,9 +9,12 @@ categories = ["http", "web", "network-programming", "web-programming::http-serve
 
 
 [dependencies]
-futures-core = "0.3.19"
-hyper = { version = "0.14.6", features = ["http1", "http2", "server", "stream"] }
 log = "0.4.14"
 num_cpus = "1.13.1"
 polling = "2.2.0"
-tokio = { version = "1.12.0" }
+tokio = "1.12.0"
+futures-core = "0.3.19"
+hyper = { version = "0.14.6", features = ["http1", "http2", "server", "stream"] }
+
+[dev-dependencies]
+matchit = "0.4.4"
