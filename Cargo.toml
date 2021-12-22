@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2018"
 
 [dependencies]
-hyper = { version = "0.14.6", features = ["http1", "http2", "server"] }
+futures-core = "0.3.19"
+hyper = { version = "0.14.6", features = ["http1", "http2", "server", "stream"] }
 log = "0.4.14"
 num_cpus = "1.13.1"
 polling = "2.2.0"

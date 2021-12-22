@@ -4,7 +4,7 @@ use crate::{executor, Body};
 use std::convert::Infallible;
 use std::future::Future;
 use std::io;
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::{TcpListener, ToSocketAddrs};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -16,7 +16,7 @@ use hyper::{Request, Response};
 
 #[derive(Default)]
 pub struct Server {
-    addr: Option<Vec<SocketAddr>>,
+    listener: Option<TcpListener>,
     http1_keep_alive: Option<bool>,
     http1_half_close: Option<bool>,
     http1_max_buf_size: Option<usize>,
@@ -50,61 +50,34 @@ where
 }
 
 impl Server {
-    /// Binds to the provided address, and returns a [`Builder`](Builder).
+    /// Binds a server to the provided address.
     ///
     /// # Panics
     ///
     /// This method will panic if binding to the address fails.
     pub fn bind(addr: impl ToSocketAddrs) -> Server {
+        let listener = std::net::TcpListener::bind(addr).expect("failed to bind listener");
+
         Server {
-            addr: Some(addr.to_socket_addrs().unwrap().collect()),
+            listener: Some(listener),
             ..Default::default()
         }
     }
+
+    /// Serve incoming connections with the provided service.
     pub fn serve<S>(self, service: S) -> io::Result<()>
     where
         S: Service,
     {
-        let reactor = Reactor::new().expect("failed to create reactor");
-
-        let listener = std::net::TcpListener::bind(self.addr.unwrap().as_slice())
-            .expect("failed to bind listener");
-
         let executor = executor::Executor::new(self.max_workers, self.worker_keep_alive);
         let mut http = Http::new().with_executor(executor.clone());
+        self.configure(&mut http);
 
-        options!(
-            self,
-            http,
-            [
-                http1_keep_alive,
-                http1_half_close,
-                http1_writev,
-                http1_title_case_headers,
-                http1_preserve_header_case,
-                http1_only,
-                http2_only,
-                http2_initial_stream_window_size,
-                http2_initial_connection_window_size,
-                http2_adaptive_window,
-                http2_max_frame_size,
-                http2_max_concurrent_streams,
-                http2_max_send_buf_size
-            ],
-            [
-                max_buf_size => http1_max_buf_size,
-                pipeline_flush => http1_pipeline_flush,
-            ]
-        );
         let service = Arc::new(service);
-        for conn in listener.incoming() {
-            let conn = match conn.and_then(|stream| reactor.register(stream)) {
-                Ok(conn) => conn,
-                Err(err) => {
-                    log::error!("error accepting connection: {}", err);
-                    continue;
-                }
-            };
+        let reactor = Reactor::new().expect("failed to create reactor");
+
+        for conn in self.listener.unwrap().incoming() {
+            let conn = conn.and_then(|stream| reactor.register(stream))?;
 
             let service = service.clone();
             let builder = http.clone();
@@ -303,6 +276,47 @@ impl Server {
         self.http2_max_send_buf_size = Some(max);
         self
     }
+
+    fn configure<T>(&self, http: &mut Http<T>) {
+        macro_rules! configure {
+            ($self:ident, $other:expr, [$($option:ident),* $(,)?], [$($other_option:ident => $this_option:ident),* $(,)?]) => {{
+                $(
+                    if let Some(val) = $self.$option {
+                        $other.$option(val);
+                    }
+                )*
+                $(
+                    if let Some(val) = $self.$this_option {
+                        $other.$other_option(val);
+                    }
+                )*
+            }};
+        }
+
+        configure!(
+            self,
+            http,
+            [
+                http1_keep_alive,
+                http1_half_close,
+                http1_writev,
+                http1_title_case_headers,
+                http1_preserve_header_case,
+                http1_only,
+                http2_only,
+                http2_initial_stream_window_size,
+                http2_initial_connection_window_size,
+                http2_adaptive_window,
+                http2_max_frame_size,
+                http2_max_concurrent_streams,
+                http2_max_send_buf_size
+            ],
+            [
+                max_buf_size => http1_max_buf_size,
+                pipeline_flush => http1_pipeline_flush,
+            ]
+        );
+    }
 }
 
 mod service {
@@ -342,20 +356,3 @@ mod service {
         }
     }
 }
-
-macro_rules! options {
-    ($self:ident, $other:expr, [$($option:ident),* $(,)?], [$($other_option:ident => $this_option:ident),* $(,)?]) => {{
-        $(
-            if let Some(val) = $self.$option {
-                $other.$option(val);
-            }
-        )*
-        $(
-            if let Some(val) = $self.$this_option {
-                $other.$other_option(val);
-            }
-        )*
-    }};
-}
-
-use options;
