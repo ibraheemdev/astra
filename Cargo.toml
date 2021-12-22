@@ -1,7 +1,12 @@
 [package]
 name = "astra"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
+license = "MIT"
+authors = ["ibraheem <ibrah1440@gmail.com>"]
+description = "A synchronous HTTP server built on hyper."
+categories = ["http", "web", "network-programming", "web-programming::http-server"]
+
 
 [dependencies]
 futures-core = "0.3.19"
