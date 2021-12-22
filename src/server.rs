@@ -9,6 +9,7 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use hyper::{Request, Response};
 
@@ -30,6 +31,8 @@ pub struct Server {
     http2_max_frame_size: Option<u32>,
     http2_max_concurrent_streams: Option<u32>,
     http2_max_send_buf_size: Option<usize>,
+    worker_keep_alive: Option<Duration>,
+    max_workers: Option<usize>,
 }
 
 pub trait Service: Send + Sync + 'static {
@@ -65,7 +68,9 @@ impl Server {
 
         let listener = TcpListener::bind(reactor, self.addr.unwrap().as_slice())
             .expect("failed to bind listener");
-        let builder = hyper::Server::builder(listener).executor(executor::Executor);
+
+        let executor = executor::Executor::new(self.max_workers, self.worker_keep_alive);
+        let builder = hyper::Server::builder(listener).executor(executor);
 
         let builder = options!(
             self,
@@ -91,6 +96,22 @@ impl Server {
 
         let server = builder.serve(service::MakeService(Arc::new(service)));
         executor::block_on(server).map_err(|err| io::Error::new(io::ErrorKind::Other, err))
+    }
+
+    /// Sets the maximum number of threads in the pool.
+    ///
+    /// By default, this is set to `num_cpus * 10`.
+    pub fn max_workers(mut self, val: usize) -> Self {
+        self.max_workers = Some(val);
+        self
+    }
+
+    /// Sets how long to keep alive an idle thread in the pool.
+    ///
+    /// By default, the timeout is set to 6 seconds.
+    pub fn worker_keep_alive(mut self, val: Duration) -> Self {
+        self.worker_keep_alive = Some(val);
+        self
     }
 
     /// Sets whether to use keep-alive for HTTP/1 connections.

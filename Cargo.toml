@@ -4,11 +4,8 @@ version = "0.1.0"
 edition = "2018"
 
 [dependencies]
-arc-swap = "1.5.0"
-dashmap = "5.0.0"
 hyper = { version = "0.14.6", features = ["http1", "http2", "server"] }
 log = "0.4.14"
-parking_lot = "0.11.2"
+num_cpus = "1.13.1"
 polling = "2.2.0"
-tokio = { version = "1.12.0", features = ["full"] }
-tracing-subscriber = "0.3.3"
+tokio = { version = "1.12.0" }
