@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::task::{Context, Poll, Wake};
 use std::thread::{self, Thread};
@@ -11,22 +12,37 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    pub struct Unpark(Thread);
+    pub struct Unpark {
+        thread: Thread,
+        unparked: AtomicBool,
+    }
 
     impl Wake for Unpark {
         fn wake(self: Arc<Self>) {
-            self.0.unpark();
+            if !self.unparked.swap(true, Ordering::Relaxed) {
+                self.thread.unpark();
+            }
         }
     }
 
-    let mut fut = unsafe { Pin::new_unchecked(&mut fut) };
-    let waker = Arc::new(Unpark(thread::current())).into();
+    let unpark = Arc::new(Unpark {
+        thread: thread::current(),
+        unparked: false.into(),
+    });
+
+    let waker = unpark.clone().into();
     let mut cx = Context::from_waker(&waker);
 
+    let mut fut = unsafe { Pin::new_unchecked(&mut fut) };
     loop {
         match fut.as_mut().poll(&mut cx) {
             Poll::Ready(res) => break res,
-            Poll::Pending => thread::park(),
+            Poll::Pending => {
+                if !unpark.unparked.swap(false, Ordering::Acquire) {
+                    thread::park();
+                    unpark.unparked.store(false, Ordering::Release);
+                }
+            }
         }
     }
 }
