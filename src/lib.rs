@@ -1,7 +1,11 @@
+mod body;
 mod executor;
 mod net;
 mod reactor;
 mod server;
 
-pub use hyper::{Body, Request, Response};
+pub use body::Body;
 pub use server::Server;
+
+pub type Request = hyper::Request<Body>;
+pub type Response = hyper::Response<Body>;

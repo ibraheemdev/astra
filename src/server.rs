@@ -1,6 +1,6 @@
-use crate::executor;
 use crate::net::TcpListener;
 use crate::reactor::Reactor;
+use crate::{executor, Body};
 
 use std::convert::Infallible;
 use std::future::{ready, Future, Ready};
@@ -36,14 +36,14 @@ pub struct Server {
 }
 
 pub trait Service: Send + Sync + 'static {
-    fn call(&self, request: Request<hyper::Body>) -> Response<hyper::Body>;
+    fn call(&self, request: Request<Body>) -> Response<Body>;
 }
 
 impl<F> Service for F
 where
-    F: Fn(Request<hyper::Body>) -> Response<hyper::Body> + Send + Sync + 'static,
+    F: Fn(Request<Body>) -> Response<Body> + Send + Sync + 'static,
 {
-    fn call(&self, request: Request<hyper::Body>) -> Response<hyper::Body> {
+    fn call(&self, request: Request<Body>) -> Response<Body> {
         (self)(request)
     }
 }
@@ -100,7 +100,7 @@ impl Server {
 
     /// Sets the maximum number of threads in the pool.
     ///
-    /// By default, this is set to `num_cpus * 10`.
+    /// By default, this is set to `num_cpus * 15`.
     pub fn max_workers(mut self, val: usize) -> Self {
         self.max_workers = Some(val);
         self
@@ -306,7 +306,7 @@ mod service {
     where
         S: Service,
     {
-        type Response = Response<hyper::Body>;
+        type Response = Response<Body>;
         type Error = Infallible;
         type Future = Call<S>;
 
@@ -325,11 +325,12 @@ mod service {
     where
         S: Service,
     {
-        type Output = Result<Response<hyper::Body>, Infallible>;
+        type Output = Result<Response<Body>, Infallible>;
 
         fn poll(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
-            let req = self.1.take().unwrap();
-            Poll::Ready(Ok(self.0.call(req)))
+            let (parts, body) = self.1.take().unwrap().into_parts();
+            let response = self.0.call(Request::from_parts(parts, Body(body)));
+            Poll::Ready(Ok(response))
         }
     }
 }

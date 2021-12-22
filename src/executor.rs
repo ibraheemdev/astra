@@ -9,8 +9,7 @@ use std::time::Duration;
 
 pub fn block_on<F>(mut fut: F) -> F::Output
 where
-    F: Future + Send + 'static,
-    F::Output: Send + 'static,
+    F: Future,
 {
     pub struct Unpark {
         thread: Thread,
@@ -78,7 +77,7 @@ impl Executor {
                 }),
                 condvar: Condvar::new(),
                 keep_alive: keep_alive.unwrap_or(Duration::from_secs(6)),
-                max_workers: max_workers.unwrap_or(num_cpus::get() * 10),
+                max_workers: max_workers.unwrap_or(num_cpus::get() * 15),
             }),
         }
     }
