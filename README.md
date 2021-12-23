@@ -1,6 +1,10 @@
 # Astra
 
-Astra is a synchronous HTTP server built on of [`hyper`](https://github.com/hyperium/hyper).
+[![Crate](https://img.shields.io/crates/v/astra?style=for-the-badge)](https://crates.io/crates/astra)
+[![Github](https://img.shields.io/badge/github-astra-success?style=for-the-badge)](https://github.com/ibraheemdev/astra)
+[![Docs](https://img.shields.io/badge/docs.rs-0.1.0-4d76ae?style=for-the-badge)](https://docs.rs/astra)
+
+Astra is a synchronous HTTP server built on top of [`hyper`](https://github.com/hyperium/hyper).
 
 ```rust
 use astra::{Body, Response, Server};
@@ -14,7 +18,7 @@ fn main() {
 
 ## How Does It Work?
 
-Under the hood Astra runs a small evented I/O loop, hands off async I/O sources to hyper and dispatches connections to a scalable worker pool. The difference is that instead of yielding to a userspace runtime like tokio, workers yield to the operating system scheduler. This means that services can use standard I/O primitives without worrying about blocking an event loop:
+Hyper is built on async I/O and requires it to run correctly, so Astra runs a small evented I/O loop under the hood. It dispatches incoming connections to a scalable worker pool, handing off async I/O sources to hyper. The difference is that instead of yielding to a userspace runtime like tokio, workers yield to the operating system scheduler. This means that services can use standard I/O primitives without worrying about blocking an event loop:
 
 ```rust
 use astra::{Body, ResponseBuilder, Server};
