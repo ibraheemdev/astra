@@ -1,3 +1,4 @@
+#![allow(clippy::return_self_not_must_use)]
 #![doc = include_str!("../README.md")]
 
 mod executor;
