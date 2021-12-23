@@ -9,56 +9,6 @@ use std::task::{Context, Poll, Waker};
 use polling::{Event, Poller, Source as _};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-pub struct TcpStream {
-    sys: sys::TcpStream,
-    reactor: Reactor,
-    key: usize,
-}
-
-impl AsyncRead for TcpStream {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        let unfilled = buf.initialize_unfilled();
-
-        self.reactor
-            .poll_io(READ, self.key, || (&self.sys).read(unfilled), cx)
-            .map_ok(|read| {
-                buf.advance(read);
-            })
-    }
-}
-
-impl AsyncWrite for TcpStream {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        self.reactor
-            .poll_io(WRITE, self.key, || (&self.sys).write(buf), cx)
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.reactor
-            .poll_io(WRITE, self.key, || (&self.sys).flush(), cx)
-    }
-
-    fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(self.sys.shutdown(Shutdown::Write))
-    }
-}
-
-impl Drop for TcpStream {
-    fn drop(&mut self) {
-        let mut sources = self.reactor.shared.sources.lock().unwrap();
-        let source = sources.remove(&self.key).unwrap();
-        let _ = self.reactor.shared.poller.delete(source.raw);
-    }
-}
-
 #[derive(Clone)]
 pub struct Reactor {
     shared: Arc<Shared>,
@@ -82,16 +32,7 @@ impl Reactor {
             .name("astra-reactor".to_owned())
             .spawn({
                 let shared = shared.clone();
-                move || {
-                    let mut events = Vec::with_capacity(64);
-                    loop {
-                        if let Err(err) = shared.poll(&mut events) {
-                            log::warn!("Failed to poll reactor {}", err);
-                        }
-
-                        events.clear();
-                    }
-                }
+                move || shared.run()
             })?;
 
         Ok(Reactor { shared })
@@ -165,6 +106,17 @@ impl Reactor {
 }
 
 impl Shared {
+    fn run(&self) -> io::Result<()> {
+        let mut events = Vec::with_capacity(64);
+        loop {
+            if let Err(err) = self.poll(&mut events) {
+                log::warn!("Failed to poll reactor {}", err);
+            }
+
+            events.clear();
+        }
+    }
+
     fn poll(&self, events: &mut Vec<Event>) -> io::Result<()> {
         if let Err(err) = self.poller.wait(events, None) {
             if err.kind() != io::ErrorKind::Interrupted {
@@ -237,4 +189,54 @@ struct Source {
 struct Interest {
     waker: Option<Waker>,
     notified: bool,
+}
+
+pub struct TcpStream {
+    sys: sys::TcpStream,
+    reactor: Reactor,
+    key: usize,
+}
+
+impl AsyncRead for TcpStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let unfilled = buf.initialize_unfilled();
+
+        self.reactor
+            .poll_io(READ, self.key, || (&self.sys).read(unfilled), cx)
+            .map_ok(|read| {
+                buf.advance(read);
+            })
+    }
+}
+
+impl AsyncWrite for TcpStream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        self.reactor
+            .poll_io(WRITE, self.key, || (&self.sys).write(buf), cx)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.reactor
+            .poll_io(WRITE, self.key, || (&self.sys).flush(), cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(self.sys.shutdown(Shutdown::Write))
+    }
+}
+
+impl Drop for TcpStream {
+    fn drop(&mut self) {
+        let mut sources = self.reactor.shared.sources.lock().unwrap();
+        let source = sources.remove(&self.key).unwrap();
+        let _ = self.reactor.shared.poller.delete(source.raw);
+    }
 }
