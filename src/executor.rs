@@ -76,8 +76,8 @@ impl Executor {
                     notified: 0,
                 }),
                 condvar: Condvar::new(),
-                keep_alive: keep_alive.unwrap_or(Duration::from_secs(6)),
-                max_workers: max_workers.unwrap_or(num_cpus::get() * 15),
+                keep_alive: keep_alive.unwrap_or_else(|| Duration::from_secs(6)),
+                max_workers: max_workers.unwrap_or_else(|| num_cpus::get() * 15),
             }),
         }
     }

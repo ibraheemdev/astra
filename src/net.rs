@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::convert;
 use std::io::{self, Read, Write};
 use std::net::{self as sys, Shutdown};
 use std::pin::Pin;
@@ -200,7 +199,7 @@ impl Shared {
             }
         }
 
-        for waker in wakers.into_iter().filter_map(convert::identity) {
+        for waker in wakers.into_iter().flatten() {
             waker.wake();
         }
 

@@ -18,14 +18,12 @@ use hyper::server::conn::Http;
 /// ```no_run
 /// use astra::{Body, Request, Response, Server};
 ///
-/// fn main() {
-///     Server::bind("localhost:3000")
-///         .serve(|mut req: Request| {
-///             println!("incoming {:?}", req.uri());
-///             Response::new(Body::new("Hello World!"))
-///         })
-///         .expect("failed to start server");
-/// }
+/// Server::bind("localhost:3000")
+///     .serve(|mut req: Request| {
+///         println!("incoming {:?}", req.uri());
+///         Response::new(Body::new("Hello World!"))
+///     })
+///     .expect("failed to start server");
 /// ```
 ///
 /// See the [crate-level documentation](crate#how-does-it-work) for details.
@@ -75,11 +73,9 @@ pub struct Server {
 /// }
 ///
 ///
-/// fn main() {
-///     Server::bind("localhost:3000")
-///         .serve(MyService { count: Mutex::new(0) })
-///         .expect("failed to start server");
-/// }
+/// Server::bind("localhost:3000")
+///     .serve(MyService { count: Mutex::new(0) })
+///     .expect("failed to start server");
 /// ```
 pub trait Service: Send + Sync + 'static {
     fn call(&self, request: Request) -> Response;
@@ -122,14 +118,12 @@ impl Server {
     /// ```no_run
     /// use astra::{Body, Request, Response, Server};
     ///
-    /// fn main() {
-    ///     Server::bind("localhost:3000")
-    ///         .serve(|mut req: Request| {
-    ///             println!("incoming {:?}", req.uri());
-    ///             Response::new(Body::new("Hello World!"))
-    ///         })
-    ///         .expect("failed to start server");
-    /// }
+    /// Server::bind("localhost:3000")
+    ///     .serve(|mut req: Request| {
+    ///         println!("incoming {:?}", req.uri());
+    ///         Response::new(Body::new("Hello World!"))
+    ///     })
+    ///     .expect("failed to start server");
     /// ```
     pub fn serve<S>(self, service: S) -> io::Result<()>
     where

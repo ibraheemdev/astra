@@ -5,6 +5,8 @@ edition = "2021"
 license = "MIT"
 authors = ["ibraheem <ibrah1440@gmail.com>"]
 description = "A synchronous HTTP server built on hyper."
+repository = "https://github.com/ibraheemdev/astra"
+keywords = ["http", "hyper", "web"]
 categories = ["http", "web", "network-programming", "web-programming::http-server"]
 
 
