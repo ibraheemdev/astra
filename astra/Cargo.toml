@@ -1,0 +1,18 @@
+[package]
+name = "astra"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["ibraheem <ibrah1440@gmail.com>"]
+description = "A synchronous runtime for async interop."
+repository = "https://github.com/ibraheemdev/astra"
+keywords = ["io", "async", "non-blocking", "futures"]
+categories = ["asynchronous", "network-programming"]
+
+[dependencies]
+log = "0.4.14"
+num_cpus = "1.13.1"
+polling = "2.2.0"
+once_cell = "1.9.0"
+tokio = { version = "1.15.0", default-features = false }
+seize = { git = "https://github.com/ibraheemdev/seize", branch = "flize" }

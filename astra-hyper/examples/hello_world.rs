@@ -1,4 +1,4 @@
-use astra::{Body, Response, Server};
+use astra_hyper::{Body, Response, Server};
 
 fn main() {
     Server::bind("localhost:3000")

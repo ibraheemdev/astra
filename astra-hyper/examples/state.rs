@@ -1,4 +1,4 @@
-use astra::{Body, Request, Response, Server};
+use astra_hyper::{Body, Request, Response, Server};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 

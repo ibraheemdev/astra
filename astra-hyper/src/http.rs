@@ -1,6 +1,4 @@
-use crate::executor;
-
-use core::fmt;
+use std::fmt;
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -28,7 +26,7 @@ pub type Request = hyper::Request<Body>;
 ///
 /// ```
 /// # use astra::{ResponseBuilder, Body};
-/// let response = ResponseBuilder::builder()
+/// let response = ResponseBuilder::new()
 ///     .status(404)
 ///     .header("X-Custom-Foo", "Bar")
 ///     .body(Body::new("Page not found."))
@@ -43,7 +41,7 @@ pub type Response = hyper::Response<Body>;
 /// ```
 /// use astra::{ResponseBuilder, Body};
 ///
-/// let response = ResponseBuilder::builder()
+/// let response = ResponseBuilder::new()
 ///     .status(404)
 ///     .header("X-Custom-Foo", "Bar")
 ///     .body(Body::new("Page not found."))
@@ -51,7 +49,7 @@ pub type Response = hyper::Response<Body>;
 /// ```
 ///
 /// See [`http::Response`](hyper::Response) and [`Body`] for details.
-pub type ResponseBuilder = hyper::Response<()>;
+pub type ResponseBuilder = hyper::http::response::Builder;
 
 /// The streaming body of an HTTP request or response.
 ///
@@ -97,7 +95,7 @@ impl Body {
     /// fn handle(_request: Request) -> Response {
     ///     let file = File::open("index.html").unwrap();
     ///
-    ///     ResponseBuilder::builder()
+    ///     ResponseBuilder::new()
     ///         .header("Content-Type", "text/html")
     ///         .body(Body::wrap_reader(file))
     ///         .unwrap()
@@ -124,7 +122,7 @@ impl Iterator for Body {
     type Item = io::Result<Bytes>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        executor::block_on(self.0.data())
+        astra::block_on(self.0.data())
             .map(|res| res.map_err(|err| io::Error::new(io::ErrorKind::Other, err)))
     }
 
