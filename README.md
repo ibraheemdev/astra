@@ -6,7 +6,7 @@
 
 Astra is a synchronous HTTP server built on top of [`hyper`](https://github.com/hyperium/hyper).
 
-```rust
+```rust,no_run
 use astra::{Body, Response, Server};
 
 fn main() {
@@ -20,7 +20,7 @@ fn main() {
 
 Hyper is built on async I/O and requires it to run correctly, so Astra runs a small evented I/O loop under the hood. It dispatches incoming connections to a scalable worker pool, handing off async I/O sources to hyper. The difference is that instead of yielding to a userspace runtime like tokio, workers yield to the operating system scheduler. This means that services can use standard I/O primitives without worrying about blocking an event loop:
 
-```rust
+```rust,no_run
 use astra::{Body, ResponseBuilder, Server};
 use std::time::Duration;
 
