@@ -27,6 +27,8 @@ use hyper::server::conn::Http;
 ///         .expect("failed to start server");
 /// }
 /// ```
+///
+/// See the [crate-level documentation](crate#how-does-it-work) for details.
 #[derive(Default)]
 pub struct Server {
     listener: Option<TcpListener>,
@@ -159,7 +161,7 @@ impl Server {
         Ok(())
     }
 
-    /// Sets the maximum number of threads in the pool.
+    /// Sets the maximum number of threads in the worker pool.
     ///
     /// By default, the limit is 15 threads per CPU core.
     pub fn max_workers(mut self, val: usize) -> Self {
@@ -167,7 +169,7 @@ impl Server {
         self
     }
 
-    /// Sets how long to keep alive an idle thread in the pool.
+    /// Sets how long to keep alive an idle thread in the worker pool.
     ///
     /// By default, the timeout is set to 6 seconds.
     pub fn worker_keep_alive(mut self, val: Duration) -> Self {

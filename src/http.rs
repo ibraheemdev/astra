@@ -76,7 +76,6 @@ impl Body {
     ///
     /// ```rust
     /// # use astra::Body;
-    ///
     /// let string = Body::new("Hello world!");
     /// let bytes = Body::new(vec![0, 1, 0, 1, 0]);
     /// ```
