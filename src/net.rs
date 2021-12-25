@@ -44,7 +44,7 @@ impl Reactor {
         let mut sources = self.shared.sources.lock().unwrap();
 
         let raw = (&sys).raw();
-        let key = self.shared.next_key.fetch_add(1, Ordering::SeqCst);
+        let key = self.shared.next_key.fetch_add(1, Ordering::Relaxed);
 
         self.shared.poller.add(raw, Event::none(key))?;
         sources.insert(
