@@ -1,4 +1,5 @@
-use crate::{Body, Request, Response};
+use crate::net::Reactor;
+use crate::{executor, Body, Request, Response};
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -9,6 +10,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use hyper::rt::Executor;
 use hyper::server::conn::Http;
 
 /// An HTTP server.
@@ -127,16 +129,19 @@ impl Server {
     where
         S: Service,
     {
-        let mut http = Http::new().with_executor(Executor);
+        let executor = executor::Executor::new(self.max_workers, self.worker_keep_alive);
+        let mut http = Http::new().with_executor(executor.clone());
         self.configure(&mut http);
 
         let service = Arc::new(service);
+        let reactor = Reactor::new().expect("failed to create reactor");
+
         for conn in self.listener.unwrap().incoming() {
-            let conn = conn.and_then(astra::TcpStream::from_std)?;
+            let conn = conn.and_then(|stream| reactor.register(stream))?;
             let service = service.clone();
             let builder = http.clone();
 
-            astra::spawn_future(async move {
+            executor.execute(async move {
                 if let Err(err) = builder
                     .clone()
                     .serve_connection(conn, service::HyperService(service))
@@ -371,18 +376,6 @@ impl Server {
                 pipeline_flush => http1_pipeline_flush,
             ]
         );
-    }
-}
-
-#[derive(Clone)]
-struct Executor;
-
-impl<F> hyper::rt::Executor<F> for Executor
-where
-    F: Future<Output = ()> + Send + 'static,
-{
-    fn execute(&self, fut: F) {
-        astra::spawn_future(fut)
     }
 }
 

@@ -1,4 +1,4 @@
-use astra_hyper::{Body, Request, Response, ResponseBuilder, Server};
+use astra::{Body, Request, Response, ResponseBuilder, Server};
 use matchit::{Match, Node};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -53,7 +53,7 @@ fn route(router: Arc<Router>, mut req: Request) -> Response {
             (value)(req)
         }
         // Otherwise return a 404
-        Err(_) => ResponseBuilder::new()
+        Err(_) => ResponseBuilder::builder()
             .status(404)
             .body(Body::empty())
             .unwrap(),

@@ -1,14 +1,20 @@
 use std::collections::HashMap;
-use std::io;
+use std::io::{self, Read, Write};
+use std::net::{self as sys, Shutdown};
+use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
-use polling::{Event, Poller};
+use polling::{Event, Poller, Source as _};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use crate::runtime;
-
+#[derive(Clone)]
 pub struct Reactor {
+    shared: Arc<Shared>,
+}
+
+struct Shared {
     poller: Poller,
     next_key: AtomicUsize,
     sources: Mutex<HashMap<usize, Arc<Source>>>,
@@ -16,26 +22,31 @@ pub struct Reactor {
 
 impl Reactor {
     pub fn new() -> io::Result<Self> {
-        let reactor = Self {
+        let shared = Arc::new(Shared {
             next_key: AtomicUsize::new(0),
             poller: Poller::new()?,
             sources: Mutex::new(HashMap::with_capacity(64)),
-        };
+        });
 
         std::thread::Builder::new()
             .name("astra-reactor".to_owned())
-            .spawn(move || runtime::reactor().run())?;
+            .spawn({
+                let shared = shared.clone();
+                move || shared.run()
+            })?;
 
-        Ok(reactor)
+        Ok(Reactor { shared })
     }
 
-    pub fn register(&self, source: impl polling::Source) -> io::Result<usize> {
-        let mut sources = self.sources.lock().unwrap();
-        let key = self.next_key.fetch_add(1, Ordering::SeqCst);
+    pub fn register(&self, sys: sys::TcpStream) -> io::Result<TcpStream> {
+        sys.set_nonblocking(true)?;
 
-        let raw = source.raw();
+        let mut sources = self.shared.sources.lock().unwrap();
 
-        self.poller.add(raw, Event::none(key))?;
+        let raw = (&sys).raw();
+        let key = self.shared.next_key.fetch_add(1, Ordering::SeqCst);
+
+        self.shared.poller.add(raw, Event::none(key))?;
         sources.insert(
             key,
             Arc::new(Source {
@@ -44,16 +55,14 @@ impl Reactor {
             }),
         );
 
-        Ok(key)
+        Ok(TcpStream {
+            key,
+            sys,
+            reactor: self.clone(),
+        })
     }
 
-    pub fn deregister(&self, key: usize) -> io::Result<()> {
-        let mut sources = self.sources.lock().unwrap();
-        let source = sources.remove(&key).unwrap();
-        self.poller.delete(source.raw)
-    }
-
-    pub fn poll_source<R>(
+    pub fn poll_io<R>(
         &self,
         direction: usize,
         key: usize,
@@ -78,7 +87,7 @@ impl Reactor {
         direction: usize,
         cx: &mut Context<'_>,
     ) -> Poll<io::Result<()>> {
-        let source = self.get_source(key).unwrap();
+        let source = self.shared.get_source(key).unwrap();
         let mut interest = source.interest.lock().unwrap();
         let direction = &mut interest[direction];
 
@@ -89,12 +98,14 @@ impl Reactor {
 
         match direction.waker.replace(cx.waker().clone()) {
             Some(w) => w.wake(),
-            None => self.modify(&source, &interest, key)?,
+            None => self.shared.modify(&source, &interest, key)?,
         }
 
         Poll::Pending
     }
+}
 
+impl Shared {
     fn run(&self) -> io::Result<()> {
         let mut events = Vec::with_capacity(64);
         loop {
@@ -178,4 +189,54 @@ struct Source {
 struct Interest {
     waker: Option<Waker>,
     notified: bool,
+}
+
+pub struct TcpStream {
+    sys: sys::TcpStream,
+    reactor: Reactor,
+    key: usize,
+}
+
+impl AsyncRead for TcpStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let unfilled = buf.initialize_unfilled();
+
+        self.reactor
+            .poll_io(READ, self.key, || (&self.sys).read(unfilled), cx)
+            .map_ok(|read| {
+                buf.advance(read);
+            })
+    }
+}
+
+impl AsyncWrite for TcpStream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        self.reactor
+            .poll_io(WRITE, self.key, || (&self.sys).write(buf), cx)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.reactor
+            .poll_io(WRITE, self.key, || (&self.sys).flush(), cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(self.sys.shutdown(Shutdown::Write))
+    }
+}
+
+impl Drop for TcpStream {
+    fn drop(&mut self) {
+        let mut sources = self.reactor.shared.sources.lock().unwrap();
+        let source = sources.remove(&self.key).unwrap();
+        let _ = self.reactor.shared.poller.delete(source.raw);
+    }
 }
