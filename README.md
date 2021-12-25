@@ -34,7 +34,7 @@ fn main() {
             // Regular blocking I/O is fine too!
             let body = std::fs::read_to_string("index.html").unwrap();
 
-            ResponseBuilder::builder()
+            ResponseBuilder::new()
                 .header("Content-Type", "text/html")
                 .body(Body::new(body))
                 .unwrap()
