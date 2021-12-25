@@ -41,34 +41,35 @@ impl Reactor {
     pub fn register(&self, sys: sys::TcpStream) -> io::Result<TcpStream> {
         sys.set_nonblocking(true)?;
 
-        let mut sources = self.shared.sources.lock().unwrap();
-
         let raw = (&sys).raw();
         let key = self.shared.next_key.fetch_add(1, Ordering::Relaxed);
 
         self.shared.poller.add(raw, Event::none(key))?;
-        sources.insert(
+
+        let source = Arc::new(Source {
+            raw,
             key,
-            Arc::new(Source {
-                raw,
-                interest: Default::default(),
-            }),
-        );
+            interest: Default::default(),
+        });
+
+        {
+            let mut sources = self.shared.sources.lock().unwrap();
+            sources.insert(key, source.clone());
+        }
 
         Ok(TcpStream {
-            key,
             sys,
+            source,
             reactor: self.clone(),
         })
     }
 
     fn poll_ready(
         &self,
-        key: usize,
+        source: &Source,
         direction: usize,
         cx: &mut Context<'_>,
     ) -> Poll<io::Result<()>> {
-        let source = self.shared.get_source(key).unwrap();
         let mut interest = source.interest.lock().unwrap();
         let direction = &mut interest[direction];
 
@@ -79,7 +80,7 @@ impl Reactor {
 
         match direction.waker.replace(cx.waker().clone()) {
             Some(w) => w.wake(),
-            None => self.shared.modify(&source, &interest, key)?,
+            None => self.shared.modify(source, &interest, source.key)?,
         }
 
         Poll::Pending
@@ -91,7 +92,7 @@ impl Shared {
         let mut events = Vec::with_capacity(64);
         loop {
             if let Err(err) = self.poll(&mut events) {
-                log::warn!("Failed to poll reactor {}", err);
+                log::warn!("Failed to poll reactor: {}", err);
             }
 
             events.clear();
@@ -110,9 +111,12 @@ impl Shared {
         let mut wakers = Vec::new();
 
         for event in events.iter() {
-            let source = match self.get_source(event.key) {
-                Some(source) => source.clone(),
-                None => continue,
+            let source = {
+                let sources = self.sources.lock().unwrap();
+                match sources.get(&event.key) {
+                    Some(source) => source.clone(),
+                    None => continue,
+                }
             };
 
             let mut interest = source.interest.lock().unwrap();
@@ -148,11 +152,6 @@ impl Shared {
 
         self.poller.modify(source.raw, event)
     }
-
-    fn get_source(&self, key: usize) -> Option<Arc<Source>> {
-        let sources = self.sources.lock().unwrap();
-        sources.get(&key).cloned()
-    }
 }
 
 pub const READ: usize = 0;
@@ -164,6 +163,7 @@ struct Source {
     #[cfg(windows)]
     raw: std::os::windows::io::RawSocket,
     interest: Mutex<[Interest; 2]>,
+    key: usize,
 }
 
 #[derive(Default)]
@@ -175,7 +175,7 @@ struct Interest {
 pub struct TcpStream {
     sys: sys::TcpStream,
     reactor: Reactor,
-    key: usize,
+    source: Arc<Source>,
 }
 
 impl TcpStream {
@@ -193,7 +193,7 @@ impl TcpStream {
 
             if self
                 .reactor
-                .poll_ready(self.key, direction, cx)?
+                .poll_ready(&self.source, direction, cx)?
                 .is_pending()
             {
                 return Poll::Pending;
@@ -238,7 +238,7 @@ impl AsyncWrite for TcpStream {
 impl Drop for TcpStream {
     fn drop(&mut self) {
         let mut sources = self.reactor.shared.sources.lock().unwrap();
-        let source = sources.remove(&self.key).unwrap();
+        let source = sources.remove(&self.source.key).unwrap();
         let _ = self.reactor.shared.poller.delete(source.raw);
     }
 }
