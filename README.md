@@ -48,3 +48,9 @@ fn main() {
 Astra supports both HTTP/1 and HTTP/2 with most the configuration options hyper exposes. Features that depend on tokio however, such as [`http2_keep_alive_while_idle`](https://docs.rs/hyper/latest/hyper/client/struct.Builder.html#method.http2_keep_alive_while_idle), are not supported.
 
 Astra is currently an HTTP *server* library only, the client API is unimplemented.
+
+## But Is It Fast?
+
+The point of this library isn't performance, it's to enable usage of a mature and stable HTTP server in hyper without a heavyweight runtime like tokio. If you want a synchronous HTTP server, you probably aren't looking for top-tier performance anyways. Async I/O *will* scale better as concurrency increases, both in terms of performance and resource usage. That being said, modern OS schedulers are much better than they are often given credit for...
+
+It is fast! Astra does very well in benchmarks at 25k concurrent connections; I haven't measured further than that. In a basic hello world benchmark, Astra yields 20% more throughput than Hyper running on Tokio. In a heavier benchmark involving Postgres and some HTML templating, throughput is around the same. However, Astra in that case uses the [`postgres`](https://github.com/sfackler/rust-postgres) library, which uses Tokio under the hood. In the same test but with pure blocking I/O ([`libpq`](https://www.postgresql.org/docs/current/libpq.html)), Astra again performs around 20% better than Tokio. In both cases, Astra performs an order of magnitude better in terms of latency. However, this comes at the cost of higher memory and CPU usage.
