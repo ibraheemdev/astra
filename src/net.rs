@@ -62,25 +62,6 @@ impl Reactor {
         })
     }
 
-    pub fn poll_io<R>(
-        &self,
-        direction: usize,
-        key: usize,
-        mut f: impl FnMut() -> io::Result<R>,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<R>> {
-        loop {
-            match f() {
-                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-                res => return Poll::Ready(res),
-            }
-
-            if self.poll_ready(key, direction, cx)?.is_pending() {
-                return Poll::Pending;
-            }
-        }
-    }
-
     fn poll_ready(
         &self,
         key: usize,
@@ -197,6 +178,30 @@ pub struct TcpStream {
     key: usize,
 }
 
+impl TcpStream {
+    pub fn poll_io<T>(
+        &self,
+        direction: usize,
+        mut f: impl FnMut() -> io::Result<T>,
+        cx: &mut Context<'_>,
+    ) -> Poll<io::Result<T>> {
+        loop {
+            match f() {
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
+                val => return Poll::Ready(val),
+            }
+
+            if self
+                .reactor
+                .poll_ready(self.key, direction, cx)?
+                .is_pending()
+            {
+                return Poll::Pending;
+            }
+        }
+    }
+}
+
 impl AsyncRead for TcpStream {
     fn poll_read(
         self: Pin<&mut Self>,
@@ -205,8 +210,7 @@ impl AsyncRead for TcpStream {
     ) -> Poll<io::Result<()>> {
         let unfilled = buf.initialize_unfilled();
 
-        self.reactor
-            .poll_io(READ, self.key, || (&self.sys).read(unfilled), cx)
+        self.poll_io(READ, || (&self.sys).read(unfilled), cx)
             .map_ok(|read| {
                 buf.advance(read);
             })
@@ -219,13 +223,11 @@ impl AsyncWrite for TcpStream {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        self.reactor
-            .poll_io(WRITE, self.key, || (&self.sys).write(buf), cx)
+        self.poll_io(WRITE, || (&self.sys).write(buf), cx)
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.reactor
-            .poll_io(WRITE, self.key, || (&self.sys).flush(), cx)
+        self.poll_io(WRITE, || (&self.sys).flush(), cx)
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
