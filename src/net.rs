@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::{self as sys, Shutdown};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
@@ -16,7 +16,7 @@ pub struct Reactor {
 
 struct Shared {
     registry: mio::Registry,
-    next_key: AtomicUsize,
+    token: AtomicUsize,
     sources: Mutex<HashMap<Token, Arc<Source>>>,
 }
 
@@ -24,7 +24,7 @@ impl Reactor {
     pub fn new() -> io::Result<Self> {
         let poll = mio::Poll::new()?;
         let shared = Arc::new(Shared {
-            next_key: AtomicUsize::new(0),
+            token: AtomicUsize::new(0),
             registry: poll.registry().try_clone()?,
             sources: Mutex::new(HashMap::with_capacity(64)),
         });
@@ -43,7 +43,7 @@ impl Reactor {
         sys.set_nonblocking(true)?;
         let mut sys = mio::net::TcpStream::from_std(sys);
 
-        let token = Token(self.shared.next_key.fetch_add(1, Ordering::Relaxed));
+        let token = Token(self.shared.token.fetch_add(1, Ordering::Relaxed));
 
         self.shared.registry.register(
             &mut sys,
@@ -54,6 +54,7 @@ impl Reactor {
         let source = Arc::new(Source {
             token,
             interest: Default::default(),
+            triggered: Default::default(),
         });
 
         {
@@ -74,25 +75,24 @@ impl Reactor {
         direction: usize,
         cx: &mut Context<'_>,
     ) -> Poll<io::Result<()>> {
-        let mut interest = source.interest.lock().unwrap();
-        let direction = &mut interest[direction];
-
-        if direction.triggered {
+        if source.triggered[direction].load(Ordering::Acquire) {
             return Poll::Ready(Ok(()));
         }
 
-        match &mut direction.waker {
+        let mut interest = source.interest.lock().unwrap();
+
+        match &mut interest[direction] {
             Some(existing) if existing.will_wake(cx.waker()) => {}
             _ => {
-                direction.waker = Some(cx.waker().clone());
+                interest[direction] = Some(cx.waker().clone());
             }
         }
 
         Poll::Pending
     }
 
-    fn clear_readiness(&self, source: &Source, direction: usize) {
-        source.interest.lock().unwrap()[direction].triggered = false;
+    fn clear_trigger(&self, source: &Source, direction: usize) {
+        source.triggered[direction].store(false, Ordering::Release);
     }
 }
 
@@ -136,15 +136,15 @@ impl Shared {
             let mut interest = source.interest.lock().unwrap();
 
             if event.is_readable() {
-                interest[READ].triggered = true;
-                if let Some(waker) = interest[READ].waker.take() {
+                source.triggered[direction::READ].store(true, Ordering::Release);
+                if let Some(waker) = interest[direction::READ].take() {
                     wakers.push(waker);
                 }
             }
 
             if event.is_writable() {
-                interest[WRITE].triggered = true;
-                if let Some(waker) = interest[WRITE].waker.take() {
+                source.triggered[direction::WRITE].store(true, Ordering::Release);
+                if let Some(waker) = interest[direction::WRITE].take() {
                     wakers.push(waker);
                 }
             }
@@ -158,18 +158,15 @@ impl Shared {
     }
 }
 
-pub const READ: usize = 0;
-pub const WRITE: usize = 1;
-
-struct Source {
-    interest: Mutex<[Interest; 2]>,
-    token: Token,
+mod direction {
+    pub const READ: usize = 0;
+    pub const WRITE: usize = 1;
 }
 
-#[derive(Default)]
-struct Interest {
-    waker: Option<Waker>,
-    triggered: bool,
+struct Source {
+    interest: Mutex<[Option<Waker>; 2]>,
+    triggered: [AtomicBool; 2],
+    token: Token,
 }
 
 pub struct TcpStream {
@@ -196,7 +193,7 @@ impl TcpStream {
 
             match f() {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
-                    self.reactor.clear_readiness(&self.source, direction);
+                    self.reactor.clear_trigger(&self.source, direction);
                 }
                 val => return Poll::Ready(val),
             }
@@ -212,7 +209,7 @@ impl AsyncRead for TcpStream {
     ) -> Poll<io::Result<()>> {
         let unfilled = buf.initialize_unfilled();
 
-        self.poll_io(READ, || (&self.sys).read(unfilled), cx)
+        self.poll_io(direction::READ, || (&self.sys).read(unfilled), cx)
             .map_ok(|read| {
                 buf.advance(read);
             })
@@ -225,11 +222,11 @@ impl AsyncWrite for TcpStream {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        self.poll_io(WRITE, || (&self.sys).write(buf), cx)
+        self.poll_io(direction::WRITE, || (&self.sys).write(buf), cx)
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.poll_io(WRITE, || (&self.sys).flush(), cx)
+        self.poll_io(direction::WRITE, || (&self.sys).flush(), cx)
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
