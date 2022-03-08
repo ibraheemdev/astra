@@ -18,7 +18,7 @@ where
 
     impl Wake for Unpark {
         fn wake(self: Arc<Self>) {
-            if !self.unparked.swap(true, Ordering::Relaxed) {
+            if !self.unparked.swap(true, Ordering::Release) {
                 self.thread.unpark();
             }
         }
@@ -37,9 +37,9 @@ where
         match fut.as_mut().poll(&mut cx) {
             Poll::Ready(res) => break res,
             Poll::Pending => {
-                if !unpark.unparked.swap(false, Ordering::Acquire) {
+                // wait for a real wakeup
+                while !unpark.unparked.swap(false, Ordering::Acquire) {
                     thread::park();
-                    unpark.unparked.store(false, Ordering::Release);
                 }
             }
         }
