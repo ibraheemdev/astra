@@ -79,13 +79,21 @@ impl Reactor {
             return Poll::Ready(Ok(()));
         }
 
-        let mut interest = source.interest.lock().unwrap();
+        {
+            let mut interest = source.interest.lock().unwrap();
 
-        match &mut interest[direction] {
-            Some(existing) if existing.will_wake(cx.waker()) => {}
-            _ => {
-                interest[direction] = Some(cx.waker().clone());
+            match &mut interest[direction] {
+                Some(existing) if existing.will_wake(cx.waker()) => {}
+                _ => {
+                    interest[direction] = Some(cx.waker().clone());
+                }
             }
+        }
+
+        // check if anything changed while we were registering
+        // our waker
+        if source.triggered[direction].load(Ordering::Acquire) {
+            return Poll::Ready(Ok(()));
         }
 
         Poll::Pending
@@ -136,17 +144,19 @@ impl Shared {
             let mut interest = source.interest.lock().unwrap();
 
             if event.is_readable() {
-                source.triggered[direction::READ].store(true, Ordering::Release);
                 if let Some(waker) = interest[direction::READ].take() {
                     wakers.push(waker);
                 }
+
+                source.triggered[direction::READ].store(true, Ordering::Release);
             }
 
             if event.is_writable() {
-                source.triggered[direction::WRITE].store(true, Ordering::Release);
                 if let Some(waker) = interest[direction::WRITE].take() {
                     wakers.push(waker);
                 }
+
+                source.triggered[direction::WRITE].store(true, Ordering::Release);
             }
         }
 
