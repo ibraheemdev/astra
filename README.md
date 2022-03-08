@@ -51,6 +51,6 @@ Astra is currently an HTTP *server* library only, the client API is unimplemente
 
 ## But Is It Fast?
 
-Many of the resources you'll find about thread-per-request performance are very outdated, often referencing bottlenecks from a time where [C10k](http://www.kegel.com/c10k.html) was peak scale. Since then, threads creation has gotten significantly cheaper and context switching overhead has been reduced drastically. Modern OS schedulers are much better than they are given credit for...
+Many of the resources you'll find about thread-per-request performance are very outdated, often referencing bottlenecks from a time where [C10k](http://www.kegel.com/c10k.html) was peak scale. Since then, thread creation has gotten significantly cheaper, and context switching overhead has been reduced drastically. Modern OS schedulers are much better than they are given credit for...
 
 In a realistic benchmark involving PostgreSQL and some HTML templating, Astra comes very close the Tokio throughput-wise, and an order of magnitude better in terms of latency. While not as performant as pure blocking I/O, Astra is fast! As always, you should measure your own use case, but you can expect Astra's performance to be comparable to that of Hyper running on Tokio.
