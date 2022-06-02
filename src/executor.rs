@@ -7,39 +7,47 @@ use std::task::{Context, Poll, Wake};
 use std::thread::{self, Thread};
 use std::time::Duration;
 
-pub fn block_on<F>(mut fut: F) -> F::Output
-where
-    F: Future,
-{
-    pub struct Unpark {
-        thread: Thread,
-        unparked: AtomicBool,
-    }
+pub struct Parker {
+    thread: Thread,
+    parked: AtomicBool,
+}
 
-    impl Wake for Unpark {
-        fn wake(self: Arc<Self>) {
-            if !self.unparked.swap(true, Ordering::Release) {
-                self.thread.unpark();
-            }
+impl Parker {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Parker {
+            thread: thread::current(),
+            parked: AtomicBool::new(false),
+        })
+    }
+}
+
+impl Wake for Parker {
+    fn wake(self: Arc<Self>) {
+        if self.parked.swap(false, Ordering::Release) {
+            self.thread.unpark();
         }
     }
+}
 
-    let unpark = Arc::new(Unpark {
-        thread: thread::current(),
-        unparked: false.into(),
-    });
+impl Parker {
+    pub fn block_on<F>(self: &Arc<Self>, mut fut: F) -> F::Output
+    where
+        F: Future,
+    {
+        self.parked.store(false, Ordering::Relaxed);
 
-    let waker = unpark.clone().into();
-    let mut cx = Context::from_waker(&waker);
+        let waker = self.clone().into();
+        let mut cx = Context::from_waker(&waker);
 
-    let mut fut = unsafe { Pin::new_unchecked(&mut fut) };
-    loop {
-        match fut.as_mut().poll(&mut cx) {
-            Poll::Ready(res) => break res,
-            Poll::Pending => {
-                // wait for a real wakeup
-                while !unpark.unparked.swap(false, Ordering::Acquire) {
-                    thread::park();
+        let mut fut = unsafe { Pin::new_unchecked(&mut fut) };
+        loop {
+            match fut.as_mut().poll(&mut cx) {
+                Poll::Ready(res) => break res,
+                Poll::Pending => {
+                    // wait for a real wakeup
+                    while self.parked.swap(true, Ordering::Acquire) {
+                        thread::park();
+                    }
                 }
             }
         }
@@ -59,7 +67,7 @@ struct Inner {
 }
 
 struct Shared {
-    queue: VecDeque<Box<dyn FnOnce() + Send>>,
+    queue: VecDeque<Box<dyn Future<Output = ()> + Send>>,
     workers: usize,
     idle: usize,
     notified: usize,
@@ -89,7 +97,7 @@ where
 {
     fn execute(&self, fut: F) {
         let mut shared = self.inner.shared.lock().unwrap();
-        shared.queue.push_back(Box::new(|| block_on(fut)));
+        shared.queue.push_back(Box::new(fut));
 
         if shared.idle == 0 {
             if shared.workers != self.inner.max_workers {
@@ -110,12 +118,14 @@ where
 
 impl Inner {
     fn run(&self) {
+        let parker = Parker::new();
+
         let mut shared = self.shared.lock().unwrap();
 
         'alive: loop {
             while let Some(task) = shared.queue.pop_front() {
                 drop(shared);
-                task();
+                parker.block_on(Pin::from(task));
                 shared = self.shared.lock().unwrap();
             }
 

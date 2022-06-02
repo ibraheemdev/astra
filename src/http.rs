@@ -124,7 +124,8 @@ impl Iterator for Body {
     type Item = io::Result<Bytes>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        executor::block_on(self.0.data())
+        executor::Parker::new()
+            .block_on(self.0.data())
             .map(|res| res.map_err(|err| io::Error::new(io::ErrorKind::Other, err)))
     }
 
