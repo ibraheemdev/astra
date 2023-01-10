@@ -14,7 +14,7 @@ fn main() {
 fn handle(counter: Arc<AtomicUsize>, _req: Request) -> Response {
     // Add 1 to the counter, and fetch the current value
     let n = counter.fetch_add(1, Ordering::Relaxed);
-    log::debug!("Request #{}", n);
+    log::debug!("Request #{n}");
 
     Response::new(Body::new("Hello world!"))
 }

@@ -20,7 +20,7 @@ fn get_user(req: Request) -> Response {
     // Get the 'id' from '/user/:id'
     let id = params.get("id").unwrap();
 
-    Response::new(Body::new(format!("User #{}", id)))
+    Response::new(Body::new(format!("User #{id}")))
 }
 
 fn main() {

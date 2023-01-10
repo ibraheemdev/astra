@@ -16,8 +16,7 @@ impl Parker {
     pub fn new() -> Arc<Self> {
         Arc::new(Parker {
             thread: thread::current(),
-            // start off as parked to ensure wakeups
-            // are seen in between polling and parking
+            // start off as parked to ensure wakeups are seen in between polling and parking
             parked: AtomicBool::new(true),
         })
     }
@@ -36,6 +35,9 @@ impl Parker {
     where
         F: Future,
     {
+        // reset the parked state
+        self.parked.store(true, Ordering::Relaxed);
+
         let waker = self.clone().into();
         let mut cx = Context::from_waker(&waker);
 
