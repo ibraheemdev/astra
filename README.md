@@ -18,7 +18,7 @@ fn main() {
 
 ## How Does It Work?
 
-Hyper is built on async I/O and depends on it to run correctly, so Astra runs a small evented I/O loop under the hood. It dispatches incoming connections to a scalable worker pool, handing off async I/O sources to hyper. The difference is that instead of yielding to a userspace runtime like tokio, workers yield to the operating system scheduler. This means that services can use standard I/O primitives without worrying about blocking an event loop:
+Hyper is built on async I/O and depends on it to run correctly, so Astra runs a small evented I/O loop under the hood. It dispatches incoming connections to a scalable worker pool, handing off async I/O sources to Hyper. The difference is that instead of yielding to a userspace runtime like Tokio, workers yield to the operating system scheduler. This means that services can use standard I/O primitives without worrying about blocking an event loop:
 
 ```rust,no_run
 use astra::{Body, ResponseBuilder, Server};
@@ -45,12 +45,14 @@ fn main() {
 
 ## Features
 
-Astra supports both HTTP/1 and HTTP/2 with most the configuration options hyper exposes. Features that depend on tokio however, such as [`http2_keep_alive_while_idle`](https://docs.rs/hyper/latest/hyper/client/struct.Builder.html#method.http2_keep_alive_while_idle), are not supported.
+Astra supports both HTTP/1 and HTTP/2 with most the configuration options that Hyper exposes. Features that depend on Tokio however, such as [`http2_keep_alive_while_idle`](https://docs.rs/hyper/latest/hyper/client/struct.Builder.html#method.http2_keep_alive_while_idle), are not supported and blocked on [better hyper support](https://github.com/hyperium/hyper/issues/2846).
 
-Astra is currently an HTTP *server* library only, the client API is unimplemented.
+Astra is currently an HTTP *server* library only. The client API is unimplemented.
 
 ## But Is It Fast?
 
-Many of the references you'll find about thread-per-request performance are very outdated, often referencing bottlenecks from a time where [C10k](http://www.kegel.com/c10k.html) was peak scale. Since then, thread creation has gotten significantly cheaper, and context switching overhead has been reduced drastically. Modern OS schedulers are much better than they are given credit for...
+Many of the references you'll find about thread-per-request performance are very outdated, often referencing bottlenecks from a time where [C10k](http://www.kegel.com/c10k.html) was peak scale. Since then, thread creation has gotten significantly cheaper, and context switching overhead has been reduced drastically. Modern OS schedulers are much better than they are given credit for, and it is now very feasible to serve upwards of tens of thousands of concurrent connections using synchronous I/O.
 
-In a realistic benchmark involving PostgreSQL and some HTML templating, Astra comes very close to Tokio in terms of throughput at 20k concurrent connections. While not as performant as pure blocking I/O, Astra is fast! As always, you should measure your own use case, but you can expect Astra's performance to be comparable to that of Hyper running on Tokio.
+In naive "Hello World" style HTTP benchmarks, Astra is likely to lag behind Tokio. This is partly because Astra has to pay the cost of both threading *and* asynchronous I/O to be compatible with Hyper. However, as more work is done per request, especially pure blocking I/O, the difference diminishes. As always, you should measure your own use case, but Astra's performance may surprise you.
+
+That being said, one Astra's main use cases is running a lightweight server with minimal dependencies, and avoiding the complexity that comes with async, so any potential performance tradeoff might not be be relevant.
