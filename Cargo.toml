@@ -1,6 +1,6 @@
 [package]
 name = "astra"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 license = "MIT"
 authors = ["Ibraheem Ahmed <ibraheem@ibraheem.ca>"]
@@ -11,12 +11,12 @@ categories = ["http", "web", "network-programming", "web-programming::http-serve
 
 
 [dependencies]
-log = "0.4.14"
-num_cpus = "1.13.1"
-tokio = "1.12.0"
-futures-core = "0.3.19"
-hyper = { version = "0.14.6", features = ["http1", "http2", "server", "stream"] }
-mio = { version = "0.8.0", features = ["os-poll", "net"] }
+log = "0.4.17"
+num_cpus = "1.15.0"
+tokio = "1.14.1"
+futures-core = "0.3.25"
+hyper = { version = "0.14.23", features = ["http1", "http2", "server", "stream"] }
+mio = { version = "0.8.5", features = ["os-poll", "net"] }
 
 [dev-dependencies]
-matchit = "0.4.4"
+matchit = "0.7.0"

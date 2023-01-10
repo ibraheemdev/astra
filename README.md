@@ -2,9 +2,9 @@
 
 [![Crate](https://img.shields.io/crates/v/astra?style=for-the-badge)](https://crates.io/crates/astra)
 [![Github](https://img.shields.io/badge/github-astra-success?style=for-the-badge)](https://github.com/ibraheemdev/astra)
-[![Docs](https://img.shields.io/badge/docs.rs-0.1.2-4d76ae?style=for-the-badge)](https://docs.rs/astra)
+[![Docs](https://img.shields.io/badge/docs.rs-0.1.3-4d76ae?style=for-the-badge)](https://docs.rs/astra)
 
-Astra is a synchronous HTTP server built on top of [`hyper`](https://github.com/hyperium/hyper).
+A synchronous HTTP server built on top of [`hyper`](https://github.com/hyperium/hyper).
 
 ```rust,no_run
 use astra::{Body, Response, Server};

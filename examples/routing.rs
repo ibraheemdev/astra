@@ -1,10 +1,27 @@
-use astra::{Body, Request, Response, ResponseBuilder, Server};
-use matchit::{Match, Node};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-type Router = Node<fn(Request) -> Response>;
+use astra::{Body, Request, Response, ResponseBuilder, Server};
+use matchit::Match;
+
+type Router = matchit::Router<fn(Request) -> Response>;
 type Params = HashMap<String, String>;
+
+// GET '/'
+fn home(_: Request) -> Response {
+    Response::new(Body::new("Welcome!"))
+}
+
+// GET '/user/:id'
+fn get_user(req: Request) -> Response {
+    // Retreive route parameters from the the request extensions
+    let params = req.extensions().get::<Params>().unwrap();
+
+    // Get the 'id' from '/user/:id'
+    let id = params.get("id").unwrap();
+
+    Response::new(Body::new(format!("User #{}", id)))
+}
 
 fn main() {
     // Setup the routes
@@ -21,33 +38,15 @@ fn main() {
         .expect("serve failed");
 }
 
-// The handler for "/"
-fn home(_: Request) -> Response {
-    Response::new(Body::new("Welcome!"))
-}
-
-// The handler for "/user/:id"
-fn get_user(req: Request) -> Response {
-    // Get the routing parameters out of the request
-    // extensions, inserted by `route`
-    let params = req.extensions().get::<Params>().unwrap();
-
-    // Get the "id" from "/user/:id"
-    let id = params.get("id").unwrap();
-
-    Response::new(Body::new(format!("User #{}", id)))
-}
-
 fn route(router: Arc<Router>, mut req: Request) -> Response {
     // Try to find the handler for the requested path
     match router.at(req.uri().path()) {
-        // If it is found, insert the route parameters
-        // into the request extensions to be accessed
-        // by the handler, and call it
+        // If a handler is found, insert the route parameters into the request
+        // extensions, and call it
         Ok(Match { value, params }) => {
             let params = params
                 .iter()
-                .map(|(k, v)| (k.into(), v.into()))
+                .map(|(k, v)| (k.to_owned(), v.to_owned()))
                 .collect::<Params>();
             req.extensions_mut().insert(params);
             (value)(req)
