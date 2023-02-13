@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
-use std::net::{self as sys, Shutdown};
+use std::net::{self as sys, Shutdown, SocketAddr};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -42,7 +42,12 @@ impl Reactor {
     pub fn register(&self, sys: sys::TcpStream) -> io::Result<TcpStream> {
         sys.set_nonblocking(true)?;
         let mut sys = mio::net::TcpStream::from_std(sys);
-
+        let local_addr = sys.local_addr().unwrap();
+        let peer_addr = sys.peer_addr().unwrap();
+        let connection_info = ConnectionInfo {
+            local_addr,
+            peer_addr
+        };
         let token = Token(self.shared.token.fetch_add(1, Ordering::Relaxed));
 
         self.shared.registry.register(
@@ -66,6 +71,7 @@ impl Reactor {
             sys,
             source,
             reactor: self.clone(),
+            connection_info
         })
     }
 
@@ -179,10 +185,17 @@ struct Source {
     token: Token,
 }
 
+#[derive(Clone)]
+pub struct ConnectionInfo {
+    pub peer_addr: SocketAddr,
+    pub local_addr: SocketAddr
+}
+
 pub struct TcpStream {
     sys: mio::net::TcpStream,
     reactor: Reactor,
     source: Arc<Source>,
+    pub connection_info: ConnectionInfo
 }
 
 impl TcpStream {

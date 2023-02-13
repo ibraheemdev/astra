@@ -11,7 +11,7 @@ use astra::{Body, Response, Server};
 
 fn main() {
     Server::bind("localhost:3000")
-        .serve(|_req| Response::new(Body::new("Hello World!")))
+        .serve(|_req, _connection_info| Response::new(Body::new("Hello World!")))
         .expect("serve failed");
 }
 ```
@@ -26,7 +26,7 @@ use std::time::Duration;
 
 fn main() {
     Server::bind("localhost:3000")
-        .serve(|_req| {
+        .serve(|_req, _connection_info| {
             // Putting the worker thread to sleep will allow
             // other workers to run.
             std::thread::sleep(Duration::from_secs(1));

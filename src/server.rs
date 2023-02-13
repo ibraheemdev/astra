@@ -1,4 +1,4 @@
-use crate::net::Reactor;
+use crate::net::{ConnectionInfo, Reactor};
 use crate::{executor, Body, Request, Response};
 
 use std::convert::Infallible;
@@ -19,7 +19,7 @@ use hyper::server::conn::Http;
 /// use astra::{Body, Request, Response, Server};
 ///
 /// Server::bind("localhost:3000")
-///     .serve(|mut req: Request| {
+///     .serve(|mut req: Request, _| {
 ///         println!("incoming {:?}", req.uri());
 ///         Response::new(Body::new("Hello World!"))
 ///     })
@@ -56,7 +56,7 @@ pub struct Server {
 /// it manually allows for stateful services:
 ///
 /// ```no_run
-/// use astra::{Request, Response, Server, Service, Body};
+/// use astra::{Request, Response, Server, Service, Body, ConnectionInfo};
 /// use std::sync::Mutex;
 ///
 /// struct MyService {
@@ -64,7 +64,7 @@ pub struct Server {
 /// }
 ///
 /// impl Service for MyService {
-///     fn call(&self, request: Request) -> Response {
+///     fn call(&self, request: Request, _: ConnectionInfo) -> Response {
 ///         let mut count = self.count.lock().unwrap();
 ///         *count += 1;
 ///         println!("request #{}", *count);
@@ -78,15 +78,16 @@ pub struct Server {
 ///     .expect("failed to start server");
 /// ```
 pub trait Service: Send + Sync + 'static {
-    fn call(&self, request: Request) -> Response;
+    fn call(&self, request: Request, connection_info: ConnectionInfo) -> Response;
 }
 
 impl<F> Service for F
 where
-    F: Fn(Request) -> Response + Send + Sync + 'static,
+    F: Fn(Request, ConnectionInfo) -> Response + Send + Sync + 'static,
 {
-    fn call(&self, request: Request) -> Response {
-        (self)(request)
+    fn call(&self, request: Request, connection_info: ConnectionInfo) -> Response {
+        (self)(request, connection_info)
+
     }
 }
 
@@ -119,7 +120,7 @@ impl Server {
     /// use astra::{Body, Request, Response, Server};
     ///
     /// Server::bind("localhost:3000")
-    ///     .serve(|mut req: Request| {
+    ///     .serve(|mut req: Request, _| {
     ///         println!("incoming {:?}", req.uri());
     ///         Response::new(Body::new("Hello World!"))
     ///     })
@@ -140,11 +141,11 @@ impl Server {
             let conn = conn.and_then(|stream| reactor.register(stream))?;
             let service = service.clone();
             let builder = http.clone();
-
+            let connection_info = conn.connection_info.clone();
             executor.execute(async move {
                 if let Err(err) = builder
                     .clone()
-                    .serve_connection(conn, service::HyperService(service))
+                    .serve_connection(conn, service::HyperService(service, connection_info))
                     .await
                 {
                     log::error!("error serving connection: {}", err);
@@ -380,11 +381,12 @@ impl Server {
 }
 
 mod service {
+    use crate::net::ConnectionInfo;
     use super::*;
 
     type HyperRequest = hyper::Request<hyper::Body>;
 
-    pub struct HyperService<S>(pub Arc<S>);
+    pub struct HyperService<S>(pub Arc<S>, pub ConnectionInfo);
 
     impl<S> hyper::service::Service<HyperRequest> for HyperService<S>
     where
@@ -399,11 +401,11 @@ mod service {
         }
 
         fn call(&mut self, req: HyperRequest) -> Self::Future {
-            Lazy(self.0.clone(), Some(req))
+            Lazy(self.0.clone(), Some(req), self.1.clone())
         }
     }
 
-    pub struct Lazy<S>(Arc<S>, Option<HyperRequest>);
+    pub struct Lazy<S>(Arc<S>, Option<HyperRequest>, ConnectionInfo);
 
     impl<S> Future for Lazy<S>
     where
@@ -413,7 +415,7 @@ mod service {
 
         fn poll(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
             let (parts, body) = self.1.take().unwrap().into_parts();
-            let response = self.0.call(Request::from_parts(parts, Body(body)));
+            let response = self.0.call(Request::from_parts(parts, Body(body)), self.2.clone());
             Poll::Ready(Ok(response))
         }
     }
