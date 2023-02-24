@@ -1,17 +1,22 @@
-use astra::{Body, Request, Response, Server, ConnectionInfo};
-use std::sync::atomic::{Ordering};
+use astra::{Body, ConnectionInfo, Request, Response, Server};
 
 fn main() {
-
     Server::bind("localhost:3000")
         // connection_info is a second parameter like request
-        .serve(move |req, connection_info| handle(req, connection_info))
+        .serve(move |req, info| handle(req, info))
         .expect("serve failed");
 }
 
-fn handle(_req: Request, connection_info: ConnectionInfo) -> Response {
+fn handle(_req: Request, info: ConnectionInfo) -> Response {
     // Get the ip address of the client
-    let peer_ip = connection_info.peer_addr.ip().to_string();
+    let peer_addr = match info.peer_addr {
+        Some(peer_add) => peer_add,
+        None => {
+            log::error!("Could not get the clients ip address");
+            return Response::new(Body::new("Internal Server Error"));
+        }
+    };
+    let peer_ip = peer_addr.ip().to_string();
     log::debug!("The clients ip is  {peer_ip}");
 
     Response::new(Body::new(format!("Hello {}!", peer_ip)))

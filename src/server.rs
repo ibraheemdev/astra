@@ -1,10 +1,10 @@
-use crate::net::{ConnectionInfo, Reactor};
+use crate::net::Reactor;
 use crate::{executor, Body, Request, Response};
 
 use std::convert::Infallible;
 use std::future::Future;
 use std::io;
-use std::net::{TcpListener, ToSocketAddrs};
+use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -87,7 +87,6 @@ where
 {
     fn call(&self, request: Request, connection_info: ConnectionInfo) -> Response {
         (self)(request, connection_info)
-
     }
 }
 
@@ -139,9 +138,11 @@ impl Server {
 
         for conn in self.listener.unwrap().incoming() {
             let conn = conn.and_then(|stream| reactor.register(stream))?;
+            let connection_info = ConnectionInfo {
+                peer_addr: conn.sys.peer_addr().ok(),
+            };
             let service = service.clone();
             let builder = http.clone();
-            let connection_info = conn.connection_info.clone();
             executor.execute(async move {
                 if let Err(err) = builder
                     .clone()
@@ -380,8 +381,12 @@ impl Server {
     }
 }
 
+#[derive(Clone)]
+pub struct ConnectionInfo {
+    pub peer_addr: Option<SocketAddr>,
+}
+
 mod service {
-    use crate::net::ConnectionInfo;
     use super::*;
 
     type HyperRequest = hyper::Request<hyper::Body>;
@@ -415,7 +420,9 @@ mod service {
 
         fn poll(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
             let (parts, body) = self.1.take().unwrap().into_parts();
-            let response = self.0.call(Request::from_parts(parts, Body(body)), self.2.clone());
+            let response = self
+                .0
+                .call(Request::from_parts(parts, Body(body)), self.2.clone());
             Poll::Ready(Ok(response))
         }
     }

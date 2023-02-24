@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use astra::{Body, Request, Response, ResponseBuilder, Server, ConnectionInfo};
+use astra::{Body, Request, Response, ResponseBuilder, Server};
 use matchit::Match;
 
 type Router = matchit::Router<fn(Request) -> Response>;
@@ -34,12 +34,12 @@ fn main() {
 
     Server::bind("localhost:3000")
         // Pass the router to `route`, along with the request
-        .serve(move |req, _| route(router.clone(), req))
+        .serve(move |req, _info| route(router.clone(), req))
         .expect("serve failed");
 }
 
 fn route(router: Arc<Router>, mut req: Request) -> Response {
-    // Try to find the handler for the requested path`
+    // Try to find the handler for the requested path
     match router.at(req.uri().path()) {
         // If a handler is found, insert the route parameters into the request
         // extensions, and call it
