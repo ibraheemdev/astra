@@ -2,8 +2,7 @@ use astra::{Body, ConnectionInfo, Request, Response, Server};
 
 fn main() {
     Server::bind("localhost:3000")
-        // connection_info is a second parameter like request
-        .serve(move |req, info| handle(req, info))
+        .serve(handle)
         .expect("serve failed");
 }
 
