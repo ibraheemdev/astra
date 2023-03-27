@@ -34,7 +34,7 @@ fn main() {
 
     Server::bind("localhost:3000")
         // Pass the router to `route`, along with the request
-        .serve(move |req| route(router.clone(), req))
+        .serve(move |req, _info| route(router.clone(), req))
         .expect("serve failed");
 }
 

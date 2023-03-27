@@ -42,7 +42,6 @@ impl Reactor {
     pub fn register(&self, sys: sys::TcpStream) -> io::Result<TcpStream> {
         sys.set_nonblocking(true)?;
         let mut sys = mio::net::TcpStream::from_std(sys);
-
         let token = Token(self.shared.token.fetch_add(1, Ordering::Relaxed));
 
         self.shared.registry.register(
@@ -180,7 +179,7 @@ struct Source {
 }
 
 pub struct TcpStream {
-    sys: mio::net::TcpStream,
+    pub sys: mio::net::TcpStream,
     reactor: Reactor,
     source: Arc<Source>,
 }
