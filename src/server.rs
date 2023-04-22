@@ -19,7 +19,7 @@ use hyper::server::conn::Http;
 /// use astra::{Body, Request, Response, Server};
 ///
 /// Server::bind("localhost:3000")
-///     .serve(|mut req: Request, _| {
+///     .serve(|mut req: Request, _info| {
 ///         println!("incoming {:?}", req.uri());
 ///         Response::new(Body::new("Hello World!"))
 ///     })
@@ -64,7 +64,7 @@ pub struct Server {
 /// }
 ///
 /// impl Service for MyService {
-///     fn call(&self, request: Request, _: ConnectionInfo) -> Response {
+///     fn call(&self, request: Request, _info: ConnectionInfo) -> Response {
 ///         let mut count = self.count.lock().unwrap();
 ///         *count += 1;
 ///         println!("request #{}", *count);
@@ -78,15 +78,15 @@ pub struct Server {
 ///     .expect("failed to start server");
 /// ```
 pub trait Service: Send + Sync + 'static {
-    fn call(&self, request: Request, connection_info: ConnectionInfo) -> Response;
+    fn call(&self, request: Request, info: ConnectionInfo) -> Response;
 }
 
 impl<F> Service for F
 where
     F: Fn(Request, ConnectionInfo) -> Response + Send + Sync + 'static,
 {
-    fn call(&self, request: Request, connection_info: ConnectionInfo) -> Response {
-        (self)(request, connection_info)
+    fn call(&self, request: Request, info: ConnectionInfo) -> Response {
+        (self)(request, info)
     }
 }
 
@@ -138,15 +138,17 @@ impl Server {
 
         for conn in self.listener.unwrap().incoming() {
             let conn = conn.and_then(|stream| reactor.register(stream))?;
-            let connection_info = ConnectionInfo {
-                peer_addr: conn.sys.peer_addr().ok(),
-            };
+
             let service = service.clone();
             let builder = http.clone();
+            let info = ConnectionInfo {
+                peer_addr: conn.sys.peer_addr().ok(),
+            };
+
             executor.execute(async move {
                 if let Err(err) = builder
                     .clone()
-                    .serve_connection(conn, service::HyperService(service, connection_info))
+                    .serve_connection(conn, service::HyperService(service, info))
                     .await
                 {
                     log::error!("error serving connection: {}", err);
@@ -420,10 +422,10 @@ mod service {
 
         fn poll(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
             let (parts, body) = self.1.take().unwrap().into_parts();
-            let response = self
-                .0
-                .call(Request::from_parts(parts, Body(body)), self.2.clone());
-            Poll::Ready(Ok(response))
+            let req = Request::from_parts(parts, Body(body));
+
+            let res = self.0.call(req, self.2.clone());
+            Poll::Ready(Ok(res))
         }
     }
 }

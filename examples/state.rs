@@ -7,7 +7,7 @@ fn main() {
 
     Server::bind("localhost:3000")
         // Pass a handle to the counter along with the request
-        .serve(move |req, _| handle(counter.clone(), req))
+        .serve(move |req, _info| handle(counter.clone(), req))
         .expect("serve failed");
 }
 

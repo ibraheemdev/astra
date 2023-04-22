@@ -1,4 +1,4 @@
-use astra::{Body, ConnectionInfo, Request, Response, Server};
+use astra::{Body, ConnectionInfo, Request, Response, ResponseBuilder, Server};
 
 fn main() {
     Server::bind("localhost:3000")
@@ -9,14 +9,16 @@ fn main() {
 fn handle(_req: Request, info: ConnectionInfo) -> Response {
     // Get the ip address of the client
     let peer_addr = match info.peer_addr {
-        Some(peer_add) => peer_add,
+        Some(addr) => addr,
         None => {
             log::error!("Could not get the clients ip address");
-            return Response::new(Body::new("Internal Server Error"));
+            return ResponseBuilder::new()
+                .status(500)
+                .body(Body::empty())
+                .unwrap();
         }
     };
-    let peer_ip = peer_addr.ip().to_string();
-    log::debug!("The clients ip is  {peer_ip}");
 
+    let peer_ip = peer_addr.ip();
     Response::new(Body::new(format!("Hello {}!", peer_ip)))
 }
