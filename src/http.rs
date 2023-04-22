@@ -56,7 +56,7 @@ pub type ResponseBuilder = hyper::http::response::Builder;
 /// The streaming body of an HTTP request or response.
 ///
 /// Data is streamed by iterating over the body, which
-/// yields chunks as [`Bytes`](bytes::Bytes).
+/// yields chunks as [`Bytes`](hyper::body::Bytes).
 ///
 /// ```rust
 /// use astra::{Request, Response, Body};
