@@ -49,6 +49,19 @@ pub struct Server {
     max_workers: Option<usize>,
 }
 
+/// HTTP connection information.
+#[derive(Clone, Debug)]
+pub struct ConnectionInfo {
+    peer_addr: Option<SocketAddr>,
+}
+
+impl ConnectionInfo {
+    /// Returns the socket address of the remote peer of this connection.
+    pub fn peer_addr(&self) -> Option<SocketAddr> {
+        self.peer_addr
+    }
+}
+
 /// A service capable of responding to an HTTP request.
 ///
 /// This trait is automatically implemented for functions
@@ -381,11 +394,6 @@ impl Server {
             ]
         );
     }
-}
-
-#[derive(Clone)]
-pub struct ConnectionInfo {
-    pub peer_addr: Option<SocketAddr>,
 }
 
 mod service {
