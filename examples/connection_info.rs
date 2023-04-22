@@ -8,7 +8,7 @@ fn main() {
 
 fn handle(_req: Request, info: ConnectionInfo) -> Response {
     // Get the ip address of the client
-    let peer_addr = match info.peer_addr {
+    let peer_addr = match info.peer_addr() {
         Some(addr) => addr,
         None => {
             log::error!("Could not get the clients ip address");
