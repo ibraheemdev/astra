@@ -97,7 +97,32 @@ impl ConnectionInfo {
 ///     .serve(MyService { count: Mutex::new(0) })
 ///     .expect("failed to start server");
 /// ```
-pub trait Service: Send + Sync + 'static {
+///
+/// If your service is already cheaply cloneable, you can instead use `serve_clone` and avoid an extra `Arc` wrapper:
+///
+/// ```no_run
+/// use astra::{Request, Response, Server, Service, Body, ConnectionInfo};
+/// use std::sync::{Arc, Mutex};
+///
+/// #[derive(Clone)]
+/// struct MyService {
+///     count: Arc<Mutex<usize>>,
+/// }
+///
+/// impl Service for MyService {
+///     fn call(&self, request: Request, _info: ConnectionInfo) -> Response {
+///         let mut count = self.count.lock().unwrap();
+///         *count += 1;
+///         println!("request #{}", *count);
+///         Response::new(Body::new("Hello world"))
+///     }
+/// }
+///
+/// Server::bind("localhost:3000")
+///     .serve_clone(MyService { count: Arc::new(Mutex::new(0)) })
+///     .expect("failed to start server");
+/// ```
+pub trait Service: Send + 'static {
     fn call(&self, request: Request, info: ConnectionInfo) -> Response;
 }
 
@@ -107,6 +132,15 @@ where
 {
     fn call(&self, request: Request, info: ConnectionInfo) -> Response {
         (self)(request, info)
+    }
+}
+
+impl<S> Service for Arc<S>
+where
+    S: Service + Sync,
+{
+    fn call(&self, request: Request, info: ConnectionInfo) -> Response {
+        (**self).call(request, info)
     }
 }
 
@@ -147,13 +181,21 @@ impl Server {
     /// ```
     pub fn serve<S>(self, service: S) -> io::Result<()>
     where
-        S: Service,
+        S: Service + Sync,
+    {
+        self.serve_clone(Arc::new(service))
+    }
+
+    /// Like [`Self::serve`] but does not wrap `service` in an `Arc` and expects it to
+    /// implement `Clone` and `Sync` internally.
+    pub fn serve_clone<S>(self, service: S) -> io::Result<()>
+    where
+        S: Service + Clone,
     {
         let executor = executor::Executor::new(self.max_workers, self.worker_keep_alive);
         let mut http = Http::new().with_executor(executor.clone());
         self.configure(&mut http);
 
-        let service = Arc::new(service);
         let reactor = Reactor::new().expect("failed to create reactor");
 
         for conn in self.listener.unwrap().incoming() {
@@ -443,11 +485,12 @@ mod service {
 
     type HyperRequest = hyper::Request<hyper::Body>;
 
-    pub struct HyperService<S>(pub Arc<S>, pub ConnectionInfo);
+    pub struct HyperService<S>(pub S, pub ConnectionInfo);
 
     impl<S> hyper::service::Service<HyperRequest> for HyperService<S>
     where
-        S: Service,
+        S: Service + Clone,
+        // <S as Deref>::Target: Unpin,
     {
         type Response = Response;
         type Error = Infallible;
@@ -462,7 +505,9 @@ mod service {
         }
     }
 
-    pub struct Lazy<S>(Arc<S>, Option<HyperRequest>, ConnectionInfo);
+    pub struct Lazy<S>(S, Option<HyperRequest>, ConnectionInfo);
+
+    impl<S> Unpin for Lazy<S> {}
 
     impl<S> Future for Lazy<S>
     where
