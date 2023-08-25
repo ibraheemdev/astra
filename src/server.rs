@@ -38,12 +38,19 @@ pub struct Server {
     http1_title_case_headers: Option<bool>,
     http1_preserve_header_case: Option<bool>,
     http1_only: Option<bool>,
+    #[cfg(feature = "http2")]
     http2_only: Option<bool>,
+    #[cfg(feature = "http2")]
     http2_initial_stream_window_size: Option<u32>,
+    #[cfg(feature = "http2")]
     http2_initial_connection_window_size: Option<u32>,
+    #[cfg(feature = "http2")]
     http2_adaptive_window: Option<bool>,
+    #[cfg(feature = "http2")]
     http2_max_frame_size: Option<u32>,
+    #[cfg(feature = "http2")]
     http2_max_concurrent_streams: Option<u32>,
+    #[cfg(feature = "http2")]
     http2_max_send_buf_size: Option<usize>,
     worker_keep_alive: Option<Duration>,
     max_workers: Option<usize>,
@@ -283,6 +290,7 @@ impl Server {
     /// Sets whether HTTP/2 is required.
     ///
     /// Default is `false`.
+    #[cfg(feature = "http2")]
     pub fn http2_only(mut self, val: bool) -> Self {
         self.http2_only = Some(val);
         self
@@ -296,6 +304,7 @@ impl Server {
     /// If not set, hyper will use a default.
     ///
     /// [spec]: https://http2.github.io/http2-spec/#SETTINGS_INITIAL_WINDOW_SIZE
+    #[cfg(feature = "http2")]
     pub fn http2_initial_stream_window_size(mut self, sz: impl Into<Option<u32>>) -> Self {
         self.http2_initial_stream_window_size = sz.into();
         self
@@ -306,6 +315,7 @@ impl Server {
     /// Passing `None` will do nothing.
     ///
     /// If not set, hyper will use a default.
+    #[cfg(feature = "http2")]
     pub fn http2_initial_connection_window_size(mut self, sz: impl Into<Option<u32>>) -> Self {
         self.http2_initial_connection_window_size = sz.into();
         self
@@ -316,6 +326,7 @@ impl Server {
     /// Enabling this will override the limits set in
     /// `http2_initial_stream_window_size` and
     /// `http2_initial_connection_window_size`.
+    #[cfg(feature = "http2")]
     pub fn http2_adaptive_window(mut self, enabled: bool) -> Self {
         self.http2_adaptive_window = Some(enabled);
         self
@@ -326,6 +337,7 @@ impl Server {
     /// Passing `None` will do nothing.
     ///
     /// If not set, hyper will use a default.
+    #[cfg(feature = "http2")]
     pub fn http2_max_frame_size(mut self, sz: impl Into<Option<u32>>) -> Self {
         self.http2_max_frame_size = sz.into();
         self
@@ -337,6 +349,7 @@ impl Server {
     /// Default is no limit (`std::u32::MAX`). Passing `None` will do nothing.
     ///
     /// [spec]: https://http2.github.io/http2-spec/#SETTINGS_MAX_CONCURRENT_STREAMS
+    #[cfg(feature = "http2")]
     pub fn http2_max_concurrent_streams(mut self, max: impl Into<Option<u32>>) -> Self {
         self.http2_max_concurrent_streams = max.into();
         self
@@ -349,6 +362,7 @@ impl Server {
     /// # Panics
     ///
     /// The value must be no larger than `u32::MAX`.
+    #[cfg(feature = "http2")]
     pub fn http2_max_send_buf_size(mut self, max: usize) -> Self {
         self.http2_max_send_buf_size = Some(max);
         self
@@ -370,6 +384,7 @@ impl Server {
             }};
         }
 
+        #[cfg(feature = "http2")]
         configure!(
             self,
             http,
@@ -387,6 +402,24 @@ impl Server {
                 http2_max_frame_size,
                 http2_max_concurrent_streams,
                 http2_max_send_buf_size
+            ],
+            [
+                max_buf_size => http1_max_buf_size,
+                pipeline_flush => http1_pipeline_flush,
+            ]
+        );
+
+        #[cfg(not(feature = "http2"))]
+        configure!(
+            self,
+            http,
+            [
+                http1_keep_alive,
+                http1_half_close,
+                http1_writev,
+                http1_title_case_headers,
+                http1_preserve_header_case,
+                http1_only,
             ],
             [
                 max_buf_size => http1_max_buf_size,
