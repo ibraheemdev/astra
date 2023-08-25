@@ -9,13 +9,16 @@ repository = "https://github.com/ibraheemdev/astra"
 keywords = ["http", "hyper", "web"]
 categories = ["http", "web", "network-programming", "web-programming::http-server"]
 
+[features]
+default = []
+http2 = ["hyper/http2"]
 
 [dependencies]
 log = "0.4.17"
 num_cpus = "1.15.0"
 tokio = "1.14.1"
 futures-core = "0.3.25"
-hyper = { version = "0.14.23", features = ["http1", "http2", "server", "stream"] }
+hyper = { version = "0.14.23", features = ["http1", "server", "stream"] }
 mio = { version = "0.8.5", features = ["os-poll", "net"] }
 
 [dev-dependencies]
