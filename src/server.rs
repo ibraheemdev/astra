@@ -368,6 +368,15 @@ impl Server {
         self
     }
 
+    /// Get the local address of the bound socket
+    pub fn local_addr(&self) -> Option<io::Result<SocketAddr>> {
+        let listener = self.listener.as_ref()?;
+        let addr = listener
+            .local_addr()
+            .map_err(|_e| io::Error::new(io::ErrorKind::Other, "Server::bind not called yet"));
+        Some(addr)
+    }
+
     fn configure<T>(&self, http: &mut Http<T>) {
         macro_rules! configure {
             ($self:ident, $other:expr, [$($option:ident),* $(,)?], [$($other_option:ident => $this_option:ident),* $(,)?]) => {{
