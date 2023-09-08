@@ -72,7 +72,7 @@ impl Reactor {
         &self,
         source: &Source,
         direction: usize,
-        cx: &mut Context<'_>,
+        cx: &Context<'_>,
     ) -> Poll<io::Result<()>> {
         if source.triggered[direction].load(Ordering::Acquire) {
             return Poll::Ready(Ok(()));
@@ -189,7 +189,7 @@ impl TcpStream {
         &self,
         direction: usize,
         mut f: impl FnMut() -> io::Result<T>,
-        cx: &mut Context<'_>,
+        cx: &Context<'_>,
     ) -> Poll<io::Result<T>> {
         loop {
             if self
