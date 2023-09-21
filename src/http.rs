@@ -158,9 +158,8 @@ impl<'b> std::io::Read for BodyReader<'b> {
 
             if !self.prev_bytes.is_empty() {
                 let chunk_size = cmp::min(buf.len(), self.prev_bytes.len());
-                let prev_bytes_rest = self.prev_bytes.split_to(chunk_size);
-                buf[..chunk_size].copy_from_slice(&self.prev_bytes[..chunk_size]);
-                self.prev_bytes = prev_bytes_rest;
+                let prev_bytes_start = self.prev_bytes.split_to(chunk_size);
+                buf[..chunk_size].copy_from_slice(&prev_bytes_start[..]);
                 buf = &mut buf[chunk_size..];
                 written += chunk_size;
                 continue;
