@@ -128,7 +128,7 @@ pub trait Service: Send + 'static {
 
 impl<F> Service for F
 where
-    F: Fn(Request, ConnectionInfo) -> Response + Send + Sync + 'static,
+    F: Fn(Request, ConnectionInfo) -> Response + Send + 'static,
 {
     fn call(&self, request: Request, info: ConnectionInfo) -> Response {
         (self)(request, info)
