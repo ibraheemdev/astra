@@ -1,5 +1,5 @@
 use astra::{Request, Response};
-use astra_web::{layer_fn, Group, Next, Router};
+use astra_web::{layer_fn, Next, Router};
 use http::{Method, Version};
 
 fn hello_world(_request: Request, _method: Method, _version: Version) -> &'static str {
@@ -15,17 +15,19 @@ fn create_foo() -> &'static str {
 }
 
 fn main() {
-    Router::new()
+    let router = Router::new()
         .get("/", hello_world)
-        .group(
+        .nest(
             "/foo",
-            Group::new()
+            Router::new()
                 .get("/", get_foo)
                 .get("/index", get_foo)
                 .post("/new", create_foo),
         )
-        .layer(layer_fn(logger))
-        .serve("localhost:3000")
+        .layer(layer_fn(logger));
+
+    astra::Server::bind("localhost:3000")
+        .serve(router.into_service())
         .unwrap()
 }
 

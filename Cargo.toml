@@ -23,3 +23,6 @@ mio = { version = "0.8.5", features = ["os-poll", "net"] }
 
 [dev-dependencies]
 matchit = "0.7.0"
+
+# [workspace]
+# members = ["astra-web"]

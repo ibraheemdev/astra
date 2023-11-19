@@ -7,48 +7,37 @@ use std::sync::Arc;
 
 use http::{Method, StatusCode};
 
-pub struct Routes<L> {
-    pub routes: Vec<(Method, matchit::Router<handler::Erased>)>,
-    pub layer: L,
-}
-
-#[derive(Clone)]
-pub struct SharedRouter<L> {
-    pub routes: Arc<Vec<(Method, matchit::Router<handler::Erased>)>>,
+pub struct Router<L> {
+    pub routes: Vec<(Method, Vec<(String, handler::Erased)>)>,
     pub layer: L,
 }
 
 struct Params(HashMap<String, String>);
 
-impl Routes<()> {
-    pub fn new() -> Routes<()> {
-        Routes {
+impl Router<()> {
+    pub fn new() -> Router<()> {
+        Router {
             routes: Vec::new(),
             layer: (),
         }
     }
 }
 
-impl<L> Routes<L>
+impl<L> Router<L>
 where
     L: Layer,
 {
-    pub fn layer<O>(self, layer: O) -> Routes<impl Layer>
+    pub fn layer<O>(self, layer: O) -> Router<impl Layer>
     where
         O: Layer,
     {
-        Routes {
+        Router {
             layer: self.layer.layer(layer),
             routes: self.routes,
         }
     }
 
-    pub fn route<H, R>(
-        &mut self,
-        path: &str,
-        method: Method,
-        handler: H,
-    ) -> Result<(), matchit::InsertError>
+    pub fn route<H, R>(self, path: &str, method: Method, handler: H) -> Router<L>
     where
         H: Handler<R>,
         H::Response: IntoResponse,
@@ -57,22 +46,38 @@ where
         self.route_erased(path, method, handler::erase(handler))
     }
 
+    pub fn get<H, R>(self, path: &str, handler: H) -> Router<L>
+    where
+        H: Handler<R>,
+        H::Response: IntoResponse,
+        R: FromRequest,
+    {
+        self.route(path, Method::GET, handler)
+    }
+
+    route!(put => PUT);
+    route!(post => POST);
+    route!(head => HEAD);
+    route!(patch => PATCH);
+    route!(delete => DELETE);
+    route!(options => OPTIONS);
+
     pub fn route_erased(
-        &mut self,
+        mut self,
         path: &str,
         method: Method,
         handler: handler::Erased,
-    ) -> Result<(), matchit::InsertError> {
+    ) -> Router<L> {
         if let Some(routes) = self.routes_mut(&method) {
-            return routes.insert(path, handler);
+            routes.push((path.to_owned(), handler));
+            return self;
         }
 
-        self.routes.push((method, matchit::Router::new()));
-        let router = &mut self.routes.last_mut().unwrap().1;
-        router.insert(path, handler)
+        self.routes.push((method, vec![(path.to_owned(), handler)]));
+        self
     }
 
-    pub fn group<O>(&mut self, prefix: &str, group: Group<O>) -> Result<(), matchit::InsertError>
+    pub fn nest<O>(mut self, prefix: &str, router: Router<O>) -> Router<L>
     where
         O: Layer,
     {
@@ -81,20 +86,50 @@ where
             prefix.push('/');
         }
 
-        for (method, path, handler) in group.routes {
-            let path = format!("{}{}", prefix, path);
-            let handler = handler.layer(group.layer.clone());
-            self.route_erased(&path, method, handler::erase(handler))?;
+        for (method, routes) in router.routes {
+            for (path, handler) in routes {
+                let path = format!("{}{}", prefix, path);
+                let handler = handler.layer(router.layer.clone());
+                self = self.route_erased(&path, method.clone(), handler::erase(handler));
+            }
         }
 
-        Ok(())
+        self
     }
 
-    fn routes_mut(&mut self, method: &Method) -> Option<&mut matchit::Router<handler::Erased>> {
+    fn routes_mut(&mut self, method: &Method) -> Option<&mut Vec<(String, handler::Erased)>> {
         self.routes
             .iter_mut()
             .find(|(m, _)| m == method)
             .map(|(_, router)| router)
+    }
+
+    pub fn into_service(self) -> impl astra::Service {
+        let router = SharedRouter::new(self);
+        move |req, _| router.serve(req)
+    }
+}
+
+#[derive(Clone)]
+pub struct SharedRouter<L> {
+    pub routes: Arc<Vec<(Method, matchit::Router<handler::Erased>)>>,
+    pub layer: L,
+}
+
+impl<L> SharedRouter<L> {
+    pub fn new(router: Router<L>) -> SharedRouter<L> {
+        let routes = router.routes.into_iter().map(|(method, routes)| {
+            let mut router = matchit::Router::new();
+            for (path, handler) in routes {
+                router.insert(path, handler).unwrap();
+            }
+            (method, router)
+        });
+
+        SharedRouter {
+            routes: Arc::new(routes.collect()),
+            layer: router.layer,
+        }
     }
 }
 
@@ -140,65 +175,9 @@ where
     }
 }
 
-pub struct Group<L> {
-    pub routes: Vec<(Method, String, handler::Erased)>,
-    pub layer: L,
-}
-
-impl Group<()> {
-    pub fn new() -> Group<()> {
-        Group {
-            routes: Vec::new(),
-            layer: (),
-        }
-    }
-}
-
-impl<L> Group<L>
-where
-    L: Layer,
-{
-    pub fn layer<O>(self, layer: O) -> Group<impl Layer>
-    where
-        O: Layer,
-    {
-        Group {
-            layer: self.layer.layer(layer),
-            routes: self.routes,
-        }
-    }
-
-    pub fn route<H, R>(mut self, path: &str, method: Method, handler: H) -> Group<L>
-    where
-        H: Handler<R>,
-        H::Response: IntoResponse,
-        R: FromRequest,
-    {
-        self.routes
-            .push((method, path.to_owned(), handler::erase(handler)));
-        self
-    }
-
-    pub fn get<H, R>(self, path: &str, handler: H) -> Group<L>
-    where
-        H: Handler<R>,
-        H::Response: IntoResponse,
-        R: FromRequest,
-    {
-        self.route(path, Method::GET, handler)
-    }
-
-    route!(put => PUT);
-    route!(post => POST);
-    route!(head => HEAD);
-    route!(patch => PATCH);
-    route!(delete => DELETE);
-    route!(options => OPTIONS);
-}
-
 macro_rules! route {
     ($name:ident => $method:ident) => {
-        pub fn $name<H, R>(self, path: &str, handler: H) -> Group<L>
+        pub fn $name<H, R>(self, path: &str, handler: H) -> Router<L>
         where
             H: Handler<R>,
             H::Response: IntoResponse,
