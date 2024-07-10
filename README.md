@@ -1,8 +1,8 @@
-# Astra
+# `astra`
 
-[![Crate](https://img.shields.io/crates/v/astra?style=for-the-badge)](https://crates.io/crates/astra)
-[![Github](https://img.shields.io/badge/github-astra-success?style=for-the-badge)](https://github.com/ibraheemdev/astra)
-[![Docs](https://img.shields.io/badge/docs.rs-0.3.0-4d76ae?style=for-the-badge)](https://docs.rs/astra)
+[<img alt="crates.io" src="https://img.shields.io/crates/v/astra?style=for-the-badge" height="25">](https://crates.io/crates/astra)
+[<img alt="github" src="https://img.shields.io/badge/github-astra-blue?style=for-the-badge" height="25">](https://github.com/ibraheemdev/astra)
+[<img alt="docs.rs" src="https://img.shields.io/docsrs/astra?style=for-the-badge" height="25">](https://docs.rs/astra)
 
 A blocking HTTP server built on top of [`hyper`](https://github.com/hyperium/hyper).
 
