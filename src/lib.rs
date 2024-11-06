@@ -6,5 +6,5 @@ mod http;
 mod net;
 mod server;
 
-pub use http::{Body, Request, Response, ResponseBuilder};
+pub use http::{Body, BodyReader, Request, Response, ResponseBuilder};
 pub use server::{ConnectionInfo, Server, Service};

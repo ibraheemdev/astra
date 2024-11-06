@@ -195,7 +195,7 @@ impl hyper::body::Body for Body {
     }
 }
 
-/// Implements `std::io::Read` for `Body`.
+/// Implements [`std::io::Read`] for [`Body`].
 pub struct BodyReader<'body> {
     body: &'body mut Body,
     prev_bytes: Bytes,
@@ -219,8 +219,8 @@ impl std::io::Read for BodyReader<'_> {
             }
 
             if written != 0 {
-                // pulling from an interator can block, and we have something to return
-                // already, so return it
+                // Pulling from the iterator can block and we have something to return
+                // already, so return it.
                 return Ok(written);
             }
 
