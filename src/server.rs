@@ -11,7 +11,7 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use hyper::rt::Executor;
-use hyper::server::conn::Http;
+use hyper_util::server::conn::auto::Builder;
 
 /// An HTTP server.
 ///
@@ -37,11 +37,14 @@ pub struct Server {
     http1_writev: Option<bool>,
     http1_title_case_headers: Option<bool>,
     http1_preserve_header_case: Option<bool>,
-    http1_only: Option<bool>,
+    http1_only: bool,
+
     #[cfg(feature = "http2")]
-    http2_only: Option<bool>,
+    http2_only: bool,
     #[cfg(feature = "http2")]
     http2_initial_stream_window_size: Option<u32>,
+    #[cfg(feature = "http2")]
+    http2_enable_connect_protocol: bool,
     #[cfg(feature = "http2")]
     http2_initial_connection_window_size: Option<u32>,
     #[cfg(feature = "http2")]
@@ -52,6 +55,9 @@ pub struct Server {
     http2_max_concurrent_streams: Option<u32>,
     #[cfg(feature = "http2")]
     http2_max_send_buf_size: Option<usize>,
+    #[cfg(feature = "http2")]
+    http2_max_header_list_size: Option<u32>,
+
     worker_keep_alive: Option<Duration>,
     max_workers: Option<usize>,
 }
@@ -193,8 +199,7 @@ impl Server {
         S: Service + Clone,
     {
         let executor = executor::Executor::new(self.max_workers, self.worker_keep_alive);
-        let mut http = Http::new().with_executor(executor.clone());
-        self.configure(&mut http);
+        let http = self.configure(Builder::new(executor.clone()));
 
         let reactor = Reactor::new().expect("failed to create reactor");
 
@@ -321,11 +326,9 @@ impl Server {
         self
     }
 
-    /// Sets whether HTTP/1 is required.
-    ///
-    /// Default is `false`.
-    pub fn http1_only(mut self, val: bool) -> Self {
-        self.http1_only = Some(val);
+    /// Only accepts HTTP/1.
+    pub fn http1_only(mut self) -> Self {
+        self.http1_only = true;
         self
     }
 
@@ -333,8 +336,8 @@ impl Server {
     ///
     /// Default is `false`.
     #[cfg(feature = "http2")]
-    pub fn http2_only(mut self, val: bool) -> Self {
-        self.http2_only = Some(val);
+    pub fn http2_only(mut self) -> Self {
+        self.http2_only = true;
         self
     }
 
@@ -349,6 +352,15 @@ impl Server {
     #[cfg(feature = "http2")]
     pub fn http2_initial_stream_window_size(mut self, sz: impl Into<Option<u32>>) -> Self {
         self.http2_initial_stream_window_size = sz.into();
+        self
+    }
+
+    /// Enables the [extended CONNECT protocol].
+    ///
+    /// [extended CONNECT protocol]: https://datatracker.ietf.org/doc/html/rfc8441#section-4
+    #[cfg(feature = "http2")]
+    pub fn http2_enable_connect_protocol(mut self) -> Self {
+        self.http2_enable_connect_protocol = true;
         self
     }
 
@@ -418,93 +430,88 @@ impl Server {
             .local_addr()
     }
 
-    fn configure<T>(&self, http: &mut Http<T>) {
+    // Propagate all settings on this server to the `Builder`.
+    fn configure<T>(&self, mut http: Builder<T>) -> Builder<T> {
         macro_rules! configure {
-            ($self:ident, $other:expr, [$($option:ident),* $(,)?], [$($other_option:ident => $this_option:ident),* $(,)?]) => {{
-                $(
-                    if let Some(val) = $self.$option {
-                        $other.$option(val);
-                    }
-                )*
-                $(
-                    if let Some(val) = $self.$this_option {
-                        $other.$other_option(val);
-                    }
-                )*
+            ($self:ident.$option:ident => $other:ident.$builder:ident.$other_option:ident) => {{
+                if let Some(val) = $self.$option {
+                    $other.$builder().$other_option(val);
+                }
+            }};
+            ($self:ident.$option:ident => $other:ident.$builder:ident.$other_option:ident()) => {{
+                if $self.$option {
+                    $other.$builder().$other_option();
+                }
             }};
         }
 
-        #[cfg(feature = "http2")]
-        configure!(
-            self,
-            http,
-            [
-                http1_keep_alive,
-                http1_half_close,
-                http1_writev,
-                http1_title_case_headers,
-                http1_preserve_header_case,
-                http1_only,
-                http2_only,
-                http2_initial_stream_window_size,
-                http2_initial_connection_window_size,
-                http2_adaptive_window,
-                http2_max_frame_size,
-                http2_max_concurrent_streams,
-                http2_max_send_buf_size
-            ],
-            [
-                max_buf_size => http1_max_buf_size,
-                pipeline_flush => http1_pipeline_flush,
-            ]
-        );
+        if self.http1_only {
+            http = http.http1_only();
+        }
 
-        #[cfg(not(feature = "http2"))]
-        configure!(
-            self,
-            http,
-            [
-                http1_keep_alive,
-                http1_half_close,
-                http1_writev,
-                http1_title_case_headers,
-                http1_preserve_header_case,
-                http1_only,
-            ],
-            [
-                max_buf_size => http1_max_buf_size,
-                pipeline_flush => http1_pipeline_flush,
-            ]
-        );
+        #[cfg(feature = "http2")]
+        if self.http2_only {
+            http = http.http2_only();
+        }
+
+        configure!(self.http1_keep_alive => http.http1.keep_alive);
+        configure!(self.http1_half_close => http.http1.half_close);
+        configure!(self.http1_max_buf_size => http.http1.max_buf_size);
+        configure!(self.http1_pipeline_flush => http.http1.pipeline_flush);
+        configure!(self.http1_writev => http.http1.writev);
+        configure!(self.http1_title_case_headers => http.http1.title_case_headers);
+        configure!(self.http1_preserve_header_case => http.http1.preserve_header_case);
+
+        #[cfg(feature = "http2")]
+        {
+            configure!(self.http2_initial_stream_window_size => http.http2.initial_stream_window_size);
+            configure!(self.http2_enable_connect_protocol => http.http2.enable_connect_protocol());
+            configure!(self.http2_initial_connection_window_size => http.http2.initial_connection_window_size);
+            configure!(self.http2_adaptive_window => http.http2.adaptive_window);
+            configure!(self.http2_max_frame_size => http.http2.max_frame_size);
+            configure!(self.http2_max_concurrent_streams => http.http2.max_concurrent_streams);
+            configure!(self.http2_max_send_buf_size => http.http2.max_send_buf_size);
+            configure!(self.http2_max_header_list_size => http.http2.max_header_list_size);
+        }
+
+        http
     }
 }
 
 mod service {
     use super::*;
 
-    type HyperRequest = hyper::Request<hyper::Body>;
+    use http_body_util::combinators::UnsyncBoxBody;
+    use http_body_util::BodyExt;
 
+    type HyperRequest = hyper::Request<hyper::body::Incoming>;
+
+    /// Implements `hyper::Service` for an implementation of `astra::Service`.
     pub struct HyperService<S>(pub S, pub ConnectionInfo);
 
     impl<S> hyper::service::Service<HyperRequest> for HyperService<S>
     where
         S: Service + Clone,
-        // <S as Deref>::Target: Unpin,
     {
         type Response = Response;
         type Error = Infallible;
         type Future = Lazy<S>;
 
-        fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-            Poll::Ready(Ok(()))
-        }
-
-        fn call(&mut self, req: HyperRequest) -> Self::Future {
-            Lazy(self.0.clone(), Some(req), self.1.clone())
+        fn call(&self, request: HyperRequest) -> Self::Future {
+            Lazy {
+                request: Some(request),
+                service: self.0.clone(),
+                info: self.1.clone(),
+            }
         }
     }
 
-    pub struct Lazy<S>(S, Option<HyperRequest>, ConnectionInfo);
+    /// A `Future` that calls `astra::Service::call`.
+    pub struct Lazy<S> {
+        service: S,
+        request: Option<HyperRequest>,
+        info: ConnectionInfo,
+    }
 
     impl<S> Unpin for Lazy<S> {}
 
@@ -515,10 +522,11 @@ mod service {
         type Output = Result<Response, Infallible>;
 
         fn poll(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
-            let (parts, body) = self.1.take().unwrap().into_parts();
-            let req = Request::from_parts(parts, Body(body));
+            let (parts, body) = self.request.take().unwrap().into_parts();
+            let body = Body(UnsyncBoxBody::new(body.map_err(io::Error::other)));
+            let req = Request::from_parts(parts, body);
 
-            let res = self.0.call(req, self.2.clone());
+            let res = self.service.call(req, self.info.clone());
             Poll::Ready(Ok(res))
         }
     }

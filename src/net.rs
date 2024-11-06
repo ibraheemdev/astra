@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
+use std::mem::MaybeUninit;
 use std::net::{self as sys, Shutdown};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
+use hyper::rt::ReadBufCursor;
 use mio::{Events, Token};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 #[derive(Clone)]
 pub struct Reactor {
@@ -210,22 +211,31 @@ impl TcpStream {
     }
 }
 
-impl AsyncRead for TcpStream {
+impl hyper::rt::Read for TcpStream {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
+        mut buf: ReadBufCursor<'_>,
     ) -> Poll<io::Result<()>> {
-        let unfilled = buf.initialize_unfilled();
+        let initialized = unsafe {
+            let buf = buf.as_mut();
 
-        self.poll_io(direction::READ, || (&self.sys).read(unfilled), cx)
-            .map_ok(|read| {
-                buf.advance(read);
+            // Zero the buffer.
+            std::ptr::write_bytes(buf.as_mut_ptr(), 0, buf.len());
+
+            // Safety: The buffer was initialized above.
+            &mut *(buf as *mut [MaybeUninit<u8>] as *mut [u8])
+        };
+
+        self.poll_io(direction::READ, || (&self.sys).read(initialized), cx)
+            .map_ok(|n| {
+                // Safety: The entire buffer was initialized above.
+                unsafe { buf.advance(n) };
             })
     }
 }
 
-impl AsyncWrite for TcpStream {
+impl hyper::rt::Write for TcpStream {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,

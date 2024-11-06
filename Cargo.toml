@@ -11,14 +11,14 @@ categories = ["http", "web", "network-programming", "web-programming::http-serve
 
 [features]
 default = []
-http2 = ["hyper/http2"]
+http2 = ["hyper/http2", "hyper-util/http2"]
 
 [dependencies]
 log = "0.4"
-tokio = "1.41"
-futures-core = "0.3"
-hyper = { version = "0.14.23", features = ["http1", "server", "stream"] }
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["http1", "server"] }
 mio = { version = "1", features = ["os-poll", "net"] }
+http-body-util = "0.1.2"
 
 [dev-dependencies]
 matchit = "0.7.0"

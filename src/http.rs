@@ -1,12 +1,13 @@
 use crate::executor;
 
 use core::fmt;
+use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::{cmp, debug_assert, io};
 
-use futures_core::Stream;
-use hyper::body::HttpBody;
+use http_body_util::{BodyExt, Full};
+use hyper::body::Frame;
 
 pub use hyper::body::Bytes;
 
@@ -69,7 +70,9 @@ pub type ResponseBuilder = hyper::http::response::Builder;
 ///     Response::new(Body::new("Hello World!"))
 /// }
 /// ```
-pub struct Body(pub(crate) hyper::Body);
+pub struct Body(pub(crate) BoxBody);
+
+type BoxBody = http_body_util::combinators::UnsyncBoxBody<Bytes, io::Error>;
 
 impl Body {
     /// Create a body from a string or bytes.
@@ -80,12 +83,14 @@ impl Body {
     /// let bytes = Body::new(vec![0, 1, 0, 1, 0]);
     /// ```
     pub fn new(data: impl Into<Bytes>) -> Body {
-        Body(hyper::Body::from(data.into()))
+        Body(BoxBody::new(
+            Full::new(data.into()).map_err(|err| match err {}),
+        ))
     }
 
     /// Create an empty body.
     pub fn empty() -> Body {
-        Body(hyper::Body::empty())
+        Body(BoxBody::default())
     }
 
     /// Create a body from an implementor of [`io::Read`].
@@ -107,7 +112,7 @@ impl Body {
     where
         R: io::Read + Send + 'static,
     {
-        Body(hyper::Body::wrap_stream(ReaderStream::new(reader)))
+        Body(BoxBody::new(ReaderBody::new(reader)))
     }
 
     /// Create a [`BodyReader`] that implements [`std::io::Read`].
@@ -132,23 +137,70 @@ impl Iterator for Body {
     type Item = io::Result<Bytes>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        executor::Parker::new()
-            .block_on(self.0.data())
-            .map(|res| res.map_err(|err| io::Error::new(io::ErrorKind::Other, err)))
+        struct FrameFuture<'body>(Pin<&'body mut BoxBody>);
+
+        impl Future for FrameFuture<'_> {
+            type Output = Option<Result<Frame<Bytes>, io::Error>>;
+
+            fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+                hyper::body::Body::poll_frame(self.0.as_mut(), cx)
+            }
+        }
+
+        loop {
+            let result = executor::Parker::new().block_on(FrameFuture(Pin::new(&mut self.0)));
+
+            return match result {
+                Some(Ok(frame)) => match frame.into_data() {
+                    Ok(bytes) => Some(Ok(bytes)),
+                    Err(_) => continue,
+                },
+                Some(Err(err)) => Some(Err(err)),
+                None => None,
+            };
+        }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        Stream::size_hint(&self.0)
+        let size_hint = hyper::body::Body::size_hint(&self.0);
+        (
+            size_hint.lower() as _,
+            size_hint.upper().map(|size| size as _),
+        )
     }
 }
 
-/// Wraps [`Body`] and implements [`std::io::Read`]
-pub struct BodyReader<'b> {
-    body: &'b mut Body,
+impl fmt::Debug for Body {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl Default for Body {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+impl hyper::body::Body for Body {
+    type Data = Bytes;
+    type Error = io::Error;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
+        Pin::new(&mut self.0).poll_frame(cx)
+    }
+}
+
+/// Implements `std::io::Read` for `Body`.
+pub struct BodyReader<'body> {
+    body: &'body mut Body,
     prev_bytes: Bytes,
 }
 
-impl<'b> std::io::Read for BodyReader<'b> {
+impl std::io::Read for BodyReader<'_> {
     fn read(&mut self, mut buf: &mut [u8]) -> io::Result<usize> {
         let mut written = 0;
         loop {
@@ -183,63 +235,39 @@ impl<'b> std::io::Read for BodyReader<'b> {
     }
 }
 
-impl fmt::Debug for Body {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl Default for Body {
-    fn default() -> Self {
-        Self::empty()
-    }
-}
-
-impl HttpBody for Body {
-    type Data = Bytes;
-    type Error = hyper::Error;
-
-    fn poll_data(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
-        Pin::new(&mut self.0).poll_data(cx)
-    }
-
-    fn poll_trailers(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<Option<hyper::HeaderMap>, Self::Error>> {
-        Pin::new(&mut self.0).poll_trailers(cx)
-    }
-}
-
-struct ReaderStream<R> {
+/// Implements `hyper::Body` for an implementor of `io::Read`.
+struct ReaderBody<R> {
     reader: Option<R>,
     buf: Vec<u8>,
 }
 
-const CAP: usize = 4096;
-
-impl<R> ReaderStream<R> {
+impl<R> ReaderBody<R> {
+    /// Create a new `ReaderBody` from an `io::Read`.
     fn new(reader: R) -> Self {
         Self {
             reader: Some(reader),
-            buf: vec![0; CAP],
+            buf: vec![0; CHUNK],
         }
     }
 }
 
-impl<R> Unpin for ReaderStream<R> {}
+/// The size of the read buffer.
+const CHUNK: usize = 4096;
 
-impl<R> Stream for ReaderStream<R>
+impl<R> Unpin for ReaderBody<R> {}
+
+impl<R> hyper::body::Body for ReaderBody<R>
 where
     R: io::Read,
 {
-    type Item = io::Result<Bytes>;
+    type Data = Bytes;
+    type Error = io::Error;
 
-    fn poll_next(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let ReaderStream { reader, buf } = &mut *self;
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        _: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        let ReaderBody { reader, buf } = &mut *self;
 
         let reader = match reader {
             Some(reader) => reader,
@@ -247,7 +275,7 @@ where
         };
 
         if buf.capacity() == 0 {
-            buf.extend_from_slice(&[0; CAP]);
+            buf.extend_from_slice(&[0; CHUNK]);
         }
 
         match reader.read(buf) {
@@ -262,7 +290,7 @@ where
             Ok(n) => {
                 let remaining = buf.split_off(n);
                 let chunk = std::mem::replace(buf, remaining);
-                Poll::Ready(Some(Ok(Bytes::from(chunk))))
+                Poll::Ready(Some(Ok(Frame::data(Bytes::from(chunk)))))
             }
         }
     }
