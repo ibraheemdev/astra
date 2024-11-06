@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::future::Future;
+use std::num::NonZero;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -87,7 +88,12 @@ impl Executor {
                 }),
                 condvar: Condvar::new(),
                 keep_alive: keep_alive.unwrap_or_else(|| Duration::from_secs(6)),
-                max_workers: max_workers.unwrap_or_else(|| num_cpus::get() * 15),
+                max_workers: max_workers.unwrap_or_else(|| {
+                    std::thread::available_parallelism()
+                        .map(NonZero::get)
+                        .unwrap_or(1)
+                        * 15
+                }),
             }),
         }
     }
