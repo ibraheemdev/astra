@@ -45,7 +45,7 @@ fn main() {
 
 ## Features
 
-Astra supports both HTTP/1 and HTTP/2 with most the configuration options that Hyper exposes. Features that depend on Tokio however, such as [`http2_keep_alive_while_idle`](https://docs.rs/hyper/latest/hyper/client/struct.Builder.html#method.http2_keep_alive_while_idle), are not supported and blocked on [better hyper support](https://github.com/hyperium/hyper/issues/2846).
+Astra supports both HTTP/1 and HTTP/2 with most the configuration options that Hyper exposes. Features that depend on timers however, such as [`http2_keep_alive_while_idle`](https://docs.rs/hyper/latest/hyper/client/conn/http2/struct.Builder.html#method.keep_alive_while_idle), are currently unsupported.
 
 Astra is currently an HTTP *server* library only. The client API is unimplemented.
 
