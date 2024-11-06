@@ -18,7 +18,8 @@ log = "0.4"
 hyper = { version = "1", features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["http1", "server"] }
 mio = { version = "1", features = ["os-poll", "net"] }
-http-body-util = "0.1.2"
+bytes = "1"
+http-body-util = "0.1"
 
 [dev-dependencies]
 matchit = "0.7.0"
