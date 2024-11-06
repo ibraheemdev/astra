@@ -4,8 +4,9 @@ use core::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::{cmp, debug_assert, io};
+use std::{cmp, io, mem};
 
+use bytes::BytesMut;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Frame;
 
@@ -238,7 +239,7 @@ impl std::io::Read for BodyReader<'_> {
 /// Implements `hyper::Body` for an implementor of `io::Read`.
 struct ReaderBody<R> {
     reader: Option<R>,
-    buf: Vec<u8>,
+    buf: BytesMut,
 }
 
 impl<R> ReaderBody<R> {
@@ -246,7 +247,7 @@ impl<R> ReaderBody<R> {
     fn new(reader: R) -> Self {
         Self {
             reader: Some(reader),
-            buf: vec![0; CHUNK],
+            buf: BytesMut::zeroed(CHUNK),
         }
     }
 }
@@ -289,7 +290,7 @@ where
             }
             Ok(n) => {
                 let remaining = buf.split_off(n);
-                let chunk = std::mem::replace(buf, remaining);
+                let chunk = mem::replace(buf, remaining);
                 Poll::Ready(Some(Ok(Frame::data(Bytes::from(chunk)))))
             }
         }
