@@ -149,15 +149,14 @@ impl Iterator for Body {
         }
 
         loop {
-            let result = executor::Parker::new().block_on(FrameFuture(Pin::new(&mut self.0)));
+            let result = executor::Parker::new().block_on(FrameFuture(Pin::new(&mut self.0)))?;
 
             return match result {
-                Some(Ok(frame)) => match frame.into_data() {
+                Ok(frame) => match frame.into_data() {
                     Ok(bytes) => Some(Ok(bytes)),
                     Err(_) => continue,
                 },
-                Some(Err(err)) => Some(Err(err)),
-                None => None,
+                Err(err) => Some(Err(err)),
             };
         }
     }
