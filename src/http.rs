@@ -280,10 +280,7 @@ where
         }
 
         match reader.read(buf) {
-            Err(err) => {
-                self.reader.take();
-                Poll::Ready(Some(Err(err)))
-            }
+            Err(err) => Poll::Ready(Some(Err(err))),
             Ok(0) => {
                 self.reader.take();
                 Poll::Ready(None)
