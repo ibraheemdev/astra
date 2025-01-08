@@ -165,12 +165,27 @@ impl Server {
     ///
     /// This method will panic if binding to the address fails.
     pub fn bind(addr: impl ToSocketAddrs) -> Server {
-        let listener = std::net::TcpListener::bind(addr).expect("failed to bind listener");
+        Self::try_bind(addr).expect("failed to bind listener")
+    }
 
-        Server {
+    /// Binds a server to the provided address, returning an error on failure.
+    ///
+    /// ```no_run
+    /// use astra::Server;
+    /// use std::net::SocketAddr;
+    ///
+    /// let server = Server::try_bind("localhost:3000")
+    ///     .expect("failed to bind listener");
+    /// let server = Server::try_bind(SocketAddr::from(([127, 0, 0, 1], 3000)))
+    ///     .expect("failed to bind listener");
+    /// ```
+    pub fn try_bind(addr: impl ToSocketAddrs) -> io::Result<Server> {
+        let listener = std::net::TcpListener::bind(addr)?;
+
+        Ok(Server {
             listener: Some(listener),
             ..Default::default()
-        }
+        })
     }
 
     /// Serve incoming connections with the provided service.
